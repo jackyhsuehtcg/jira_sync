@@ -171,11 +171,13 @@ class SyncBatchProcessor:
             if filtered_field_mappings is not None:
                 if available_fields is not None:
                     # 使用動態票據欄位處理
+                    # excluded_fields 已在 filtered_field_mappings 中處理過了
                     processed_issues = self.field_processor.process_issues_with_dynamic_ticket_field(
                         raw_issues_dict, filtered_field_mappings, available_fields
                     )
                 else:
                     # 使用過濾後的欄位映射
+                    # excluded_fields 已在 filtered_field_mappings 中處理過了
                     processed_issues = self.field_processor.process_issues_with_mappings(raw_issues_dict, filtered_field_mappings)
             else:
                 # 使用原始欄位映射

@@ -272,17 +272,20 @@ class SyncCoordinator:
             
             for table_info in team_config.enabled_tables:
                 table_name = table_info['name']
+                table_key = table_info['table_name']  # 使用正確的配置鍵
                 table_id = table_info['table_id']
                 jql_query = table_info['jql_query']
                 
                 try:
                     # 創建工作流配置
+                    excluded_fields = self.config_manager.get_table_excluded_fields(team_name, table_key)
                     workflow_config = SyncWorkflowConfig(
                         table_id=table_id,
                         jql_query=jql_query,
                         ticket_field_name=table_info.get('ticket_field', 'Issue Key'),
                         enable_user_mapping=team_config.user_mapping_config.get('enabled', True),
-                        enable_cold_start_detection=not full_update
+                        enable_cold_start_detection=not full_update,
+                        excluded_fields=excluded_fields
                     )
                     
                     # 執行同步
@@ -369,12 +372,14 @@ class SyncCoordinator:
             workflow_manager = self._get_workflow_manager(team_name, team_config)
             
             # 創建工作流配置
+            excluded_fields = self.config_manager.get_table_excluded_fields(team_name, table_name)
             workflow_config = SyncWorkflowConfig(
                 table_id=table_info['table_id'],
                 jql_query=table_info['jql_query'],
                 ticket_field_name=table_info.get('ticket_field', 'Issue Key'),
                 enable_user_mapping=team_config.user_mapping_config.get('enabled', True),
-                enable_cold_start_detection=not full_update
+                enable_cold_start_detection=not full_update,
+                excluded_fields=excluded_fields
             )
             
             # 執行同步
@@ -439,11 +444,13 @@ class SyncCoordinator:
             workflow_manager = self._get_workflow_manager(team_name, team_config)
             
             # 創建工作流配置
+            excluded_fields = self.config_manager.get_table_excluded_fields(team_name, table_name)
             workflow_config = SyncWorkflowConfig(
                 table_id=table_info['table_id'],
                 jql_query=table_info['jql_query'],
                 ticket_field_name=table_info.get('ticket_field', 'Issue Key'),
-                enable_user_mapping=team_config.user_mapping_config.get('enabled', True)
+                enable_user_mapping=team_config.user_mapping_config.get('enabled', True),
+                excluded_fields=excluded_fields
             )
             
             # 執行單一 Issue 同步

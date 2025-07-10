@@ -115,13 +115,14 @@ class FieldProcessor:
         """
         return self.process_issues_with_mappings(raw_issues_dict, self.field_mappings)
     
-    def process_issues_with_mappings(self, raw_issues_dict: Dict[str, Dict[str, Any]], field_mappings: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def process_issues_with_mappings(self, raw_issues_dict: Dict[str, Dict[str, Any]], field_mappings: Dict[str, Any], excluded_fields: List[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         使用指定的欄位映射批次轉換 JIRA 原始資料為 Lark Base 格式
         
         Args:
             raw_issues_dict: JIRA Client 提供的原始資料字典 {issue_key: issue_data}
             field_mappings: 欄位映射配置
+            excluded_fields: 排除不同步的欄位清單
             
         Returns:
             Dict: 轉換後的 Lark 格式資料 {issue_key: processed_data}
@@ -138,7 +139,7 @@ class FieldProcessor:
         
         for issue_key, raw_issue in raw_issues_dict.items():
             try:
-                processed_issue = self._process_single_issue_with_mappings(issue_key, raw_issue, field_mappings)
+                processed_issue = self._process_single_issue_with_mappings(issue_key, raw_issue, field_mappings, excluded_fields)
                 processed_issues[issue_key] = processed_issue
                 
                 if self.logger:
@@ -163,7 +164,8 @@ class FieldProcessor:
     
     def process_issues_with_dynamic_ticket_field(self, raw_issues_dict: Dict[str, Dict[str, Any]], 
                                                  field_mappings: Dict[str, Any], 
-                                                 available_fields: List[str]) -> Dict[str, Dict[str, Any]]:
+                                                 available_fields: List[str],
+                                                 excluded_fields: List[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         使用動態多選欄位處理 Issue
         
@@ -171,6 +173,7 @@ class FieldProcessor:
             raw_issues_dict: JIRA 原始資料字典
             field_mappings: 欄位映射配置
             available_fields: Lark 表格中可用的欄位列表
+            excluded_fields: 排除不同步的欄位清單
             
         Returns:
             Dict: 處理後的 Lark 格式資料
@@ -203,7 +206,7 @@ class FieldProcessor:
                 if lark_field in available_fields:
                     modified_mappings[jira_field] = config
         
-        return self.process_issues_with_mappings(raw_issues_dict, modified_mappings)
+        return self.process_issues_with_mappings(raw_issues_dict, modified_mappings, excluded_fields)
     
     
     def _process_single_issue(self, issue_key: str, raw_issue: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,7 +222,7 @@ class FieldProcessor:
         """
         return self._process_single_issue_with_mappings(issue_key, raw_issue, self.field_mappings)
     
-    def _process_single_issue_with_mappings(self, issue_key: str, raw_issue: Dict[str, Any], field_mappings: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_single_issue_with_mappings(self, issue_key: str, raw_issue: Dict[str, Any], field_mappings: Dict[str, Any], excluded_fields: List[str] = None) -> Dict[str, Any]:
         """
         使用指定映射處理單一 Issue 的欄位轉換
         
@@ -227,15 +230,22 @@ class FieldProcessor:
             issue_key: Issue Key
             raw_issue: JIRA 原始資料
             field_mappings: 欄位映射配置
+            excluded_fields: 排除不同步的欄位清單
             
         Returns:
             Dict: 處理後的 Lark 格式資料
         """
         processed_data = {}
         issue_fields = raw_issue.get('fields', {})
+        excluded_fields = excluded_fields or []
         
         # 處理每個配置的欄位對應
         for jira_field, config in field_mappings.items():
+            # 檢查是否在排除清單中
+            if jira_field in excluded_fields:
+                if self.logger:
+                    self.logger.debug(f"Issue {issue_key} 跳過排除欄位: {jira_field}")
+                continue
             lark_field = config['lark_field']
             processor = config['processor']
             

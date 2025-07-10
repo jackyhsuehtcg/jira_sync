@@ -41,6 +41,11 @@ class SyncWorkflowConfig:
     max_retries: int = 3
     retry_delay: float = 1.0
     enable_cold_start_detection: bool = True
+    excluded_fields: List[str] = None
+    
+    def __post_init__(self):
+        if self.excluded_fields is None:
+            self.excluded_fields = []
 
 
 @dataclass
@@ -97,13 +102,14 @@ class SyncWorkflowManager:
         
         self.logger.info("同步工作流管理器初始化完成")
     
-    def _get_filtered_field_mappings(self, table_id: str, original_mappings: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    def _get_filtered_field_mappings(self, table_id: str, original_mappings: Dict[str, Any], excluded_fields: List[str] = None) -> Tuple[Dict[str, Any], List[str]]:
         """
-        獲取過濾後的欄位映射（只包含 Lark Base 表格中實際存在的欄位）
+        獲取過濾後的欄位映射（只包含 Lark Base 表格中實際存在的欄位，並排除指定欄位）
         
         Args:
             table_id: 表格 ID
             original_mappings: 原始欄位映射配置
+            excluded_fields: 排除不同步的欄位清單
             
         Returns:
             Tuple[Dict[str, Any], List[str]]: (過濾後的欄位映射配置, 可用欄位列表)
@@ -123,9 +129,15 @@ class SyncWorkflowManager:
             # 過濾欄位映射
             filtered_mappings = {}
             skipped_fields = []
+            excluded_fields = excluded_fields or []
             
             for jira_field, config in original_mappings.items():
                 lark_field = config.get('lark_field')
+                
+                # 檢查是否在排除清單中
+                if jira_field in excluded_fields:
+                    skipped_fields.append(f"{jira_field} -> {lark_field} (excluded)")
+                    continue
                 
                 # 檢查是否有匹配的欄位
                 has_match = False
@@ -144,9 +156,9 @@ class SyncWorkflowManager:
                 else:
                     # 顯示跳過的欄位信息
                     if isinstance(lark_field, list):
-                        skipped_fields.append(f"{jira_field} -> {lark_field}")
+                        skipped_fields.append(f"{jira_field} -> {lark_field} (not found)")
                     else:
-                        skipped_fields.append(f"{jira_field} -> {lark_field}")
+                        skipped_fields.append(f"{jira_field} -> {lark_field} (not found)")
             
             if skipped_fields:
                 self.logger.info(f"跳過 {len(skipped_fields)} 個不存在的欄位: {skipped_fields}")
@@ -431,10 +443,11 @@ class SyncWorkflowManager:
             
             # 獲取動態過濾的欄位映射
             filtered_field_mappings, available_fields = self._get_filtered_field_mappings(
-                config.table_id, self.field_processor.field_mappings
+                config.table_id, self.field_processor.field_mappings, config.excluded_fields
             )
             
-            # 執行批次處理
+            # 執行批次處理  
+            # 注意：excluded_fields 已經在 _get_filtered_field_mappings 中處理過了
             sync_results = self.batch_processor.process_sync_operations(
                 config.table_id, sync_operations, filtered_field_mappings, available_fields
             )
@@ -468,10 +481,11 @@ class SyncWorkflowManager:
             with log_manager._get_transaction() as transaction_conn:
                 # 1. 獲取動態過濾的欄位映射
                 filtered_field_mappings, available_fields = self._get_filtered_field_mappings(
-                    config.table_id, self.field_processor.field_mappings
+                    config.table_id, self.field_processor.field_mappings, config.excluded_fields
                 )
                 
                 # 2. 執行批次處理
+                # 注意：excluded_fields 已經在 _get_filtered_field_mappings 中處理過了  
                 sync_results = self.batch_processor.process_sync_operations(
                     config.table_id, sync_operations, filtered_field_mappings, available_fields
                 )

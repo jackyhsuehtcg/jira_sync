@@ -239,6 +239,43 @@ class ConfigManager:
         
         return None
     
+    def get_table_excluded_fields(self, team_name: str, table_name: str) -> List[str]:
+        """
+        取得表格的排除欄位清單
+        
+        Args:
+            team_name: 團隊名稱
+            table_name: 表格名稱
+            
+        Returns:
+            List[str]: 排除的欄位清單
+        """
+        try:
+            table_config = self.get_table_config(team_name, table_name)
+            if table_config:
+                excluded_fields = table_config.get('excluded_fields', [])
+                # 確保返回的是 list
+                if excluded_fields is None:
+                    excluded_fields = []
+                elif not isinstance(excluded_fields, list):
+                    if self.logger:
+                        self.logger.warning(f"表格 {team_name}.{table_name} 的 excluded_fields 不是 list 類型，已轉換")
+                    excluded_fields = []
+                
+                if self.logger and excluded_fields:
+                    self.logger.debug(f"表格 {team_name}.{table_name} 排除欄位: {excluded_fields}")
+                
+                return excluded_fields
+            else:
+                if self.logger:
+                    self.logger.warning(f"表格 {team_name}.{table_name} 不存在或未啟用")
+                return []
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"取得表格 {team_name}.{table_name} 排除欄位失敗: {e}")
+            return []
+    
     def get_sync_interval(self, team_name: str = None, table_name: str = None) -> int:
         """
         獲取同步間隔時間（表格 > 團隊 > 全域）
