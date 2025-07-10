@@ -1,0 +1,87 @@
+# JIRA-Lark 同步系統 Schema 配置
+# 定義 JIRA 欄位 → Lark 欄位對應及處理方式
+
+field_mappings:
+  # 基本欄位
+  "key": 
+    lark_field: "Issue Key"
+    processor: "extract_simple"
+  "summary": 
+    lark_field: "Title"
+    processor: "extract_simple"
+  "status": 
+    lark_field: "JIRA Status"
+    processor: "extract_nested"
+    nested_path: "name"
+  "issuetype": 
+    lark_field: "Issue Type"
+    processor: "extract_nested"
+    nested_path: "name"
+  "priority": 
+    lark_field: "Priority"
+    processor: "extract_nested"
+    nested_path: "name"
+  "resolution": 
+    lark_field: "Resolution"
+    processor: "extract_nested"
+    nested_path: "name"
+  "assignee": 
+    lark_field: "Assignee"
+    processor: "extract_user"
+  "reporter": 
+    lark_field: "Reporter"
+    processor: "extract_user"
+  "created": 
+    lark_field: "Created"
+    processor: "convert_datetime"
+  "updated": 
+    lark_field: "Updated Date"
+    processor: "convert_datetime"
+  "duedate": 
+    lark_field: "Due Day"
+    processor: "convert_datetime"
+  "resolutiondate": 
+    lark_field: "Resolved"
+    processor: "convert_datetime"
+  "components": 
+    lark_field: "Components"
+    processor: "extract_components"
+  "fixVersions": 
+    lark_field: "Fix Versions"
+    processor: "extract_versions"
+  "issuelinks": 
+    lark_field: "Linked Issues"
+    processor: "extract_links"
+  
+  # 自定義欄位
+  "customfield_10404": 
+    lark_field: "Project Manager"
+    processor: "extract_user"
+  "customfield_10502": 
+    lark_field: "SIT Date"
+    processor: "convert_datetime"
+  "customfield_11600": 
+    lark_field: "Start Date"
+    processor: "convert_datetime"
+  "customfield_10501": 
+    lark_field: "End of Test Date"
+    processor: "convert_datetime"
+  "customfield_10200": 
+    lark_field: "Deployment Time"
+    processor: "convert_datetime"
+  "customfield_11601": 
+    lark_field: "Product"
+    processor: "extract_simple"
+  "customfield_11300": 
+    lark_field: "Story Points"
+    processor: "extract_simple"
+  "customfield_11603": 
+    lark_field: "Sprints"
+    processor: "extract_simple"
+
+# 票據欄位列表（超連結類型）
+ticket_fields:
+  - "Ticket Number"
+  - "TCG Tickets"
+  - "Issue"
+  - "Ticket"

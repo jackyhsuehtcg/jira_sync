@@ -1,0 +1,130 @@
+# JIRA-Lark 同步系統配置文件（生產環境）
+# 請謹慎修改此配置文件，錯誤的配置可能導致系統無法正常運行
+
+# 全域配置
+global:
+  data_directory: data                    # 資料目錄
+  default_sync_interval: 180              # 預設同步間隔（秒）
+  log_file: jira_lark_sync.log           # 日誌檔案
+  log_level: WARNING                      # 日誌級別：DEBUG, INFO, WARNING, ERROR
+  schema_file: schema.yaml               # Schema 檔案路徑
+
+# JIRA 連接配置
+jira:
+  password: Abcd1234                     # JIRA 密碼
+  server_url: https://jira.tc-gaming.co/jira  # JIRA 伺服器 URL
+  username: jacky.h                      # JIRA 用戶名
+
+# Lark Base 配置
+lark_base:
+  app_id: cli_a8d1077685be102f           # Lark App ID
+  app_secret: kS35CmIAjP5tVib1LpPIqUkUJjuj3pIt  # Lark App Secret
+  base_url: https://open.larksuite.com/open-apis  # Lark API 基礎 URL
+
+# 團隊配置
+teams:
+  # Management 團隊 - 管理層總覽報表
+  management:
+    display_name: Management             # 顯示名稱
+    enabled: true                        # 是否啟用
+    sync_interval: 600                   # 同步間隔（秒）
+    sync_settings:
+      batch_size: 100                    # 批次大小
+      max_retries: 3                     # 最大重試次數
+      retry_delay: 1.0                   # 重試延遲（秒）
+    tables:
+      tp_table:                          # TP 表格
+        enabled: true                    # 是否啟用
+        jql_query: project = TP AND issuetype in standardIssueTypes() AND ((status in (Open, "In Progress", Reopened, "In Review", "Action Needed")) OR (status = Closed AND created >= -120d) OR (status = Resolved AND updated >= -180d)) AND component in (CRM, "Game & Entertainment", "Game Integration", "Game Management", Payment, "Promotion Engine", "Shared Service", TAC, "User Management")
+        name: TP Backlog                 # 表格名稱
+        sync_interval: 600               # 同步間隔（秒）
+        table_id: tblLaOEm4u2PTTk7       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+      tcg_table:                         # TCG 表格
+        enabled: true                    # 是否啟用
+        jql_query: project = TCG AND (created >= -2d or updated >=-2d) AND component in ("CRD CRM", DMS, "GED DCS", "GED GAME", "GED LEDT", "GED LFE", "GED LGS", "GED QA", "GPD GCS", "GPD VIS", "OPD ODS", "PCD Promotion", "PMD MCS Payment", "PMD Payment GW", "TAD B2B", "TAD MIS", "TAD TAC", "TAD TAC UI", "UAD ACS", "UAD USS", "UMD User Management")
+        name: TCG Tickets                # 表格名稱
+        sync_interval: 600               # 同步間隔（秒）
+        table_id: tblCfk9WQ4psypJi       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+      icr_table:                         # ICR 表格
+        enabled: true                    # 是否啟用
+        jql_query: project = ICR AND issuetype in standardIssueTypes() AND ( status in (Open, "In Progress", Resolved, "In Review", "Action Needed")  OR (status = closed and updated > -180d)) AND component != WSD AND updated > -365d AND created > -365d
+        name: ICR                        # 表格名稱
+        sync_interval: 600               # 同步間隔（秒）
+        table_id: tblbe0tlMVpMmngz       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+    wiki_token: S93iwK3FhiyHNkkvKcilnRkngpg    # Wiki Token
+
+  # AID_TRM 團隊 - 高頻同步 AID 和 TRM 專案
+  aid_trm:
+    display_name: AID & TRM              # 顯示名稱
+    enabled: true                        # 是否啟用
+    sync_interval: 180                   # 同步間隔（秒）
+    sync_settings:
+      batch_size: 100                    # 批次大小
+      max_retries: 3                     # 最大重試次數
+      retry_delay: 1.0                   # 重試延遲（秒）
+    tables:
+      aid_table:                         # AID 表格
+        enabled: true                    # 是否啟用
+        jql_query: project = AID AND type != "PSM Monitor"  AND ((status IN (Open, "In Progress", "To Do", "Action Needed")) OR (status = Closed AND updated >= -2d))
+        name: AID                        # 表格名稱
+        sync_interval: 180               # 同步間隔（秒）
+        table_id: tblRhuH6YoGvahxL       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+      trm_table:                         # TRM 表格
+        enabled: true                    # 是否啟用
+        jql_query: project = TRM AND issuetype = "PRD Release Ticket" AND created >= -2d AND component in (CRD, GED.DCS, GED.LGS, GED.LGW, GED.WS, GPD.GCS, GPD.VIS, OPD.ODS, PMD.PSS, SPD.MCS, TAD.B2B, TAD.TAC, UAD.ACS, UAD.USS)
+        name: TSD TRM                    # 表格名稱
+        sync_interval: 180               # 同步間隔（秒）
+        table_id: tblsk4brC0zvClvQ       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+    wiki_token: S93iwK3FhiyHNkkvKcilnRkngpg    # Wiki Token
+
+  # WSD 團隊 - 網站解決方案部門
+  wsd:
+    display_name: WSD                    # 顯示名稱
+    enabled: true                        # 是否啟用
+    sync_interval: 180                   # 同步間隔（秒）
+    sync_settings:
+      batch_size: 100                    # 批次大小
+      max_retries: 3                     # 最大重試次數
+      retry_delay: 1.0                   # 重試延遲（秒）
+    tables:
+      wsd_table:                         # WSD 表格
+        enabled: true                    # 是否啟用
+        jql_query: status in (Open, "In Progress", Resolved, Closed, "To Do") AND component in ("WSD. WL Core", "WSD. WL Solution", "WSD. WL SYS", "WSD. WL Template", "WSD. WL VD") AND updated > -100d AND created > -100d
+        name: WSD Tickets                # 表格名稱
+        sync_interval: 180               # 同步間隔（秒）
+        table_id: tblAnrKWUS0bX79G       # Lark 表格 ID
+        ticket_field: TCG Tickets        # 票據欄位名稱
+    wiki_token: Vpa6wDU4sii9c9kr5iBlwZHxg8c    # Wiki Token
+
+# 用戶映射配置
+user_mapping:
+  cache_db: data/user_mapping_cache.db   # 用戶映射快取資料庫
+  email_domains:                         # 支援的電子郵件網域
+    - tc-gaming.com
+    - noona-tech.com
+    - genesis-tech.ph
+    - gsdubai.com
+    - stack-tech.info
+    - itech-my.com
+    - novanine.cc
+    - st-win.jp
+    - st-win.com.tw
+    - real-win.com.tw
+    - .tcg@gmail.com
+  enabled: true                          # 是否啟用用戶映射
+
+# Issue Link 過濾規則配置
+issue_link_rules:
+  # 根據 Issue Key 前綴匹配套用不同過濾規則
+  ICR:   # ICR-* tickets 適用的規則
+    display_link_prefixes: ["TP"]       # 只顯示 PSM-* 的 linked issues
+    enabled: true
+  # 預設規則（當 Issue Key 前綴不匹配任何規則時）
+  default:
+    display_link_prefixes: []            # 空陣列表示顯示所有 linked issues
+    enabled: true
