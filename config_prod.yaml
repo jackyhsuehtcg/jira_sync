@@ -39,7 +39,7 @@ teams:
         name: TP Backlog                 # 表格名稱
         sync_interval: 600               # 同步間隔（秒）
         table_id: tblLaOEm4u2PTTk7       # Lark 表格 ID
-        ticket_field: TCG Tickets        # 票據欄位名稱
+        ticket_field: Ticket Number        # 票據欄位名稱
       tcg_table:                         # TCG 表格
         enabled: true                    # 是否啟用
         jql_query: project = TCG AND (created >= -2d or updated >=-2d) AND component in ("CRD CRM", DMS, "GED DCS", "GED GAME", "GED LEDT", "GED LFE", "GED LGS", "GED QA", "GPD GCS", "GPD VIS", "OPD ODS", "PCD Promotion", "PMD MCS Payment", "PMD Payment GW", "TAD B2B", "TAD MIS", "TAD TAC", "TAD TAC UI", "UAD ACS", "UAD USS", "UMD User Management")
@@ -53,7 +53,7 @@ teams:
         name: ICR                        # 表格名稱
         sync_interval: 600               # 同步間隔（秒）
         table_id: tblbe0tlMVpMmngz       # Lark 表格 ID
-        ticket_field: TCG Tickets        # 票據欄位名稱
+        ticket_field: Ticket Number        # 票據欄位名稱
     wiki_token: S93iwK3FhiyHNkkvKcilnRkngpg    # Wiki Token
 
   # AID_TRM 團隊 - 高頻同步 AID 和 TRM 專案
@@ -72,14 +72,14 @@ teams:
         name: AID                        # 表格名稱
         sync_interval: 180               # 同步間隔（秒）
         table_id: tblRhuH6YoGvahxL       # Lark 表格 ID
-        ticket_field: TCG Tickets        # 票據欄位名稱
+        ticket_field: Ticket Number        # 票據欄位名稱
       trm_table:                         # TRM 表格
         enabled: true                    # 是否啟用
         jql_query: project = TRM AND issuetype = "PRD Release Ticket" AND created >= -2d AND component in (CRD, GED.DCS, GED.LGS, GED.LGW, GED.WS, GPD.GCS, GPD.VIS, OPD.ODS, PMD.PSS, SPD.MCS, TAD.B2B, TAD.TAC, UAD.ACS, UAD.USS)
         name: TSD TRM                    # 表格名稱
         sync_interval: 180               # 同步間隔（秒）
         table_id: tblsk4brC0zvClvQ       # Lark 表格 ID
-        ticket_field: TCG Tickets        # 票據欄位名稱
+        ticket_field: Ticket Number        # 票據欄位名稱
     wiki_token: S93iwK3FhiyHNkkvKcilnRkngpg    # Wiki Token
 
   # WSD 團隊 - 網站解決方案部門
@@ -98,7 +98,7 @@ teams:
         name: WSD Tickets                # 表格名稱
         sync_interval: 180               # 同步間隔（秒）
         table_id: tblAnrKWUS0bX79G       # Lark 表格 ID
-        ticket_field: TCG Tickets        # 票據欄位名稱
+        ticket_field: Ticket Number        # 票據欄位名稱
     wiki_token: Vpa6wDU4sii9c9kr5iBlwZHxg8c    # Wiki Token
 
 # 用戶映射配置
