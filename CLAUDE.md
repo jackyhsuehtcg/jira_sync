@@ -60,6 +60,10 @@ jira_sync_v3/
 ├── user_mapper.py           # 用戶映射器
 ├── field_processor.py       # 欄位處理器
 ├── logger.py                # 日誌系統
+├── study_tools/             # 研究工具目錄 🔧
+│   ├── lark_record_analyzer.py      # Lark 記錄分析工具
+│   ├── parent_child_record_creator.py # 父子記錄管理工具
+│   └── jira_ticket_fetcher.py       # JIRA 票據取得工具 ⭐ (新增)
 └── data/                    # 資料目錄
     ├── sync_metrics.db      # 同步指標資料庫
     ├── user_mapping_cache.db # 用戶映射快取
@@ -380,6 +384,56 @@ issue_link_rules:
 - **預設後備**: 未匹配前綴時使用 default 規則
 - **錯誤容忍**: 配置問題時回到原始行為
 
+### 5. 研究工具開發 ✅ (已完成)
+
+**需求描述**:
+- 開發獨立的 JIRA 票據取得工具用於研究和分析
+- 支援單一或多個票據的完整資訊獲取
+- 提供 JSON 輸出和摘要顯示功能
+- 與現有系統完全獨立運作
+
+**工具特色**:
+```python
+# study_tools/jira_ticket_fetcher.py
+class JiraTicketFetcher:
+    """JIRA 票據取得工具"""
+    
+    def get_ticket(self, ticket_key: str, fields: Optional[List[str]] = None):
+        """獲取單一票據資訊"""
+        
+    def get_multiple_tickets(self, ticket_keys: List[str], fields: Optional[List[str]] = None):
+        """獲取多個票據資訊"""
+        
+    def format_ticket_summary(self, ticket_info: Dict[str, Any]) -> str:
+        """格式化票據摘要資訊"""
+```
+
+**使用範例**:
+```bash
+# 單一票據
+python study_tools/jira_ticket_fetcher.py --ticket TCG-108387 --summary
+
+# 多個票據
+python study_tools/jira_ticket_fetcher.py --ticket TCG-108387 --ticket TP-3999
+
+# 指定欄位
+python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --fields summary,status,assignee
+
+# 輸出到 JSON
+python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --output ticket_analysis.json
+```
+
+**設計特色**:
+- **完全獨立**: 不依賴現有系統模組，僅使用 config.yaml 配置
+- **靈活獲取**: 支援獲取所有欄位或指定特定欄位
+- **多格式輸出**: 支援控制台摘要顯示和完整 JSON 輸出
+- **錯誤處理**: 完整的連接測試和異常處理機制
+- **批次支援**: 可一次處理多個票據
+
+**修改檔案**:
+- `study_tools/jira_ticket_fetcher.py`: 新增獨立 JIRA 票據取得工具
+- `CLAUDE.md`: 更新檔案結構和工具記錄
+
 ---
 
 ## 📝 版本記錄
@@ -388,6 +442,7 @@ issue_link_rules:
 |------|------|----------|--------|
 | 2025-07-10 | v1.0 | 初始文檔創建、批次更新優化、日誌分析 | Claude |
 | 2025-07-10 | v1.1 | Issue Link 過濾系統實作、config_path 修復 | Claude |
+| 2025-07-11 | v1.2 | 研究工具開發：JIRA 票據取得工具、父子記錄管理工具 | Claude |
 
 ---
 
