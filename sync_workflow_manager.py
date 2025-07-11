@@ -42,6 +42,7 @@ class SyncWorkflowConfig:
     retry_delay: float = 1.0
     enable_cold_start_detection: bool = True
     excluded_fields: List[str] = None
+    is_single_issue_mode: bool = False  # 單一 Issue 強制更新模式
     
     def __post_init__(self):
         if self.excluded_fields is None:
@@ -189,12 +190,29 @@ class SyncWorkflowManager:
             # 步驟 1: 檢查是否需要冷啟動
             is_cold_start = self._check_cold_start(config)
             
-            # 步驟 2: 獲取 JIRA 資料（full-update 模式跳過此步驟）
-            if not config.enable_cold_start_detection:
+            # 步驟 2: 獲取 JIRA 資料
+            if config.is_single_issue_mode:
+                # 單一 Issue 模式：直接獲取 JIRA 資料，跳過時間戳檢查
+                jira_issues = self._fetch_jira_issues(config)
+                self.logger.info(f"單一 Issue 模式：獲取到 {len(jira_issues)} 筆 JIRA 資料")
+                if not jira_issues:
+                    return SyncWorkflowResult(
+                        table_id=config.table_id,
+                        success=True,
+                        total_jira_issues=0,
+                        filtered_issues=0,
+                        created_records=0,
+                        updated_records=0,
+                        failed_operations=0,
+                        processing_time=time.time() - start_time,
+                        is_cold_start=is_cold_start
+                    )
+            elif not config.enable_cold_start_detection:
                 # Full-update 模式：直接跳過，在後續步驟中從 Lark 獲取
                 jira_issues = []
                 self.logger.info("Full-update 模式：跳過初始 JIRA 資料獲取")
             else:
+                # 標準模式：獲取 JIRA 資料並進行時間戳檢查
                 jira_issues = self._fetch_jira_issues(config)
                 if not jira_issues:
                     return SyncWorkflowResult(
@@ -456,8 +474,19 @@ class SyncWorkflowManager:
             (過濾後的 Issues, 過濾統計)
         """
         try:
+            # 單一 Issue 模式：跳過時間戳檢查，直接處理所有 Issues
+            if config.is_single_issue_mode:
+                self.logger.info("單一 Issue 模式：跳過時間戳檢查，強制更新")
+                filter_stats = {
+                    'total_issues': len(jira_issues),
+                    'filtered_issues': len(jira_issues),
+                    'skipped_issues': 0,
+                    'filter_rate': 0
+                }
+                return jira_issues, filter_stats
+            
             # 在 full-update 模式下 (enable_cold_start_detection=False)，從 Lark 表格獲取 Issue Keys
-            if not config.enable_cold_start_detection:
+            elif not config.enable_cold_start_detection:
                 self.logger.info("Full-update 模式：從 Lark 表格獲取現有記錄")
                 
                 # 1. 從 Lark 表格獲取所有記錄
@@ -739,14 +768,15 @@ class SyncWorkflowManager:
             # 構建 JQL 查詢
             single_issue_jql = f"key = {issue_key}"
             
-            # 創建單一 Issue 配置 - 保持冷啟動檢測開啟
+            # 創建單一 Issue 配置 - 啟用單一 Issue 強制更新模式
             single_config = SyncWorkflowConfig(
                 table_id=config.table_id,
                 jql_query=single_issue_jql,
                 ticket_field_name=config.ticket_field_name,
                 enable_user_mapping=config.enable_user_mapping,
-                enable_cold_start_detection=True,  # 修正：保持冷啟動檢測開啟
-                excluded_fields=config.excluded_fields  # 添加：傳遞排除欄位設定
+                enable_cold_start_detection=True,  # 保持冷啟動檢測開啟
+                excluded_fields=config.excluded_fields,  # 傳遞排除欄位設定
+                is_single_issue_mode=True  # 啟用單一 Issue 強制更新模式
             )
             
             # 執行同步工作流程
