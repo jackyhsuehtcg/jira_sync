@@ -446,7 +446,7 @@ class FieldProcessor:
                 return lark_user_list if lark_user_list is not None else []
             except Exception as e:
                 if self.logger:
-                    self.logger.error(f"用戶映射失敗: {e}")
+                    self.logger.warning(f"用戶映射失敗: {e}")
                 return []
         
         # 如果沒有 UserMapper，返回空陣列（Lark Base 人員欄位要求）

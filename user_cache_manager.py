@@ -121,7 +121,7 @@ class UserCacheManager:
                 return None
                 
         except Exception as e:
-            self.logger.error(f"獲取用戶映射失敗: {username}, {e}")
+            self.logger.warning(f"獲取用戶映射失敗: {username}, {e}")
             return None
     
     def set_user_mapping(self, username: str, mapping_data: Dict[str, Any]) -> bool:
@@ -163,7 +163,7 @@ class UserCacheManager:
                 return True
                 
         except Exception as e:
-            self.logger.error(f"設置用戶映射失敗: {username}, {e}")
+            self.logger.warning(f"設置用戶映射失敗: {username}, {e}")
             return False
     
     def get_all_mappings(self) -> Dict[str, Dict[str, Any]]:
@@ -193,7 +193,7 @@ class UserCacheManager:
                 return mappings
                 
         except Exception as e:
-            self.logger.error(f"獲取所有用戶映射失敗: {e}")
+            self.logger.warning(f"獲取所有用戶映射失敗: {e}")
             return {}
     
     def delete_user_mapping(self, username: str) -> bool:
@@ -222,7 +222,7 @@ class UserCacheManager:
                 return False
                 
         except Exception as e:
-            self.logger.error(f"刪除用戶映射失敗: {username}, {e}")
+            self.logger.warning(f"刪除用戶映射失敗: {username}, {e}")
             return False
     
     def get_cache_stats(self) -> Dict[str, Any]:
