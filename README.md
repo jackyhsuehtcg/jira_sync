@@ -96,9 +96,11 @@ python main.py --help
 **用戶管理工具**
 - `user_id_fixer.py` - 用戶 ID 補齊工具
 
-**系統維護**
+**資料管理工具**
+- `duplicate_checker.py` - 重複票據檢測工具
 - `data_cleaner.py` - 資料清理工具
-- `scheduled_cleanup.py` - 定期清理工具
+
+**系統維護**
 - `sync_tables.sh` - 表格同步腳本
 
 ### 📁 **資料目錄**
@@ -237,6 +239,21 @@ python study_tools/parent_child_record_creator.py --url "https://example.larksui
 # 刪除父記錄關係
 python study_tools/parent_child_record_creator.py --url "https://example.larksuite.com/wiki/xxxxx" \
     --remove-parent --child-story "Story-ARD-00011"
+```
+
+## 維護工具使用
+
+### 重複票據檢測工具
+
+```bash
+# 檢查所有啟用的表格（乾跑模式）
+python duplicate_checker.py --dry-run
+
+# 檢查特定團隊
+python duplicate_checker.py --team management --dry-run
+
+# 定時模式（生產環境使用）
+python duplicate_checker.py --schedule
 ```
 
 ## 動態欄位對應
