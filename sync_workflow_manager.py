@@ -189,20 +189,25 @@ class SyncWorkflowManager:
             # 步驟 1: 檢查是否需要冷啟動
             is_cold_start = self._check_cold_start(config)
             
-            # 步驟 2: 獲取 JIRA 資料
-            jira_issues = self._fetch_jira_issues(config)
-            if not jira_issues:
-                return SyncWorkflowResult(
-                    table_id=config.table_id,
-                    success=True,
-                    total_jira_issues=0,
-                    filtered_issues=0,
-                    created_records=0,
-                    updated_records=0,
-                    failed_operations=0,
-                    processing_time=time.time() - start_time,
-                    is_cold_start=is_cold_start
-                )
+            # 步驟 2: 獲取 JIRA 資料（full-update 模式跳過此步驟）
+            if not config.enable_cold_start_detection:
+                # Full-update 模式：直接跳過，在後續步驟中從 Lark 獲取
+                jira_issues = []
+                self.logger.info("Full-update 模式：跳過初始 JIRA 資料獲取")
+            else:
+                jira_issues = self._fetch_jira_issues(config)
+                if not jira_issues:
+                    return SyncWorkflowResult(
+                        table_id=config.table_id,
+                        success=True,
+                        total_jira_issues=0,
+                        filtered_issues=0,
+                        created_records=0,
+                        updated_records=0,
+                        failed_operations=0,
+                        processing_time=time.time() - start_time,
+                        is_cold_start=is_cold_start
+                    )
             
             # 步驟 3: 冷啟動處理（如果需要）
             if is_cold_start:
@@ -384,6 +389,60 @@ class SyncWorkflowManager:
             
         return None
     
+    def _fetch_jira_issues_in_batches(self, issue_keys: List[str], required_fields: List[str], 
+                                     batch_size: int = 50) -> List[Dict[str, Any]]:
+        """
+        分批從 JIRA 獲取 Issues，避免 URI 過長
+        
+        Args:
+            issue_keys: Issue Keys 列表
+            required_fields: 需要的欄位列表
+            batch_size: 批次大小（預設 50）
+            
+        Returns:
+            JIRA Issues 資料列表
+        """
+        if not issue_keys:
+            return []
+        
+        all_issues = []
+        total_batches = (len(issue_keys) + batch_size - 1) // batch_size
+        
+        self.logger.info(f"分批獲取 {len(issue_keys)} 個 Issue Keys，批次大小 {batch_size}，共 {total_batches} 批")
+        
+        for i in range(0, len(issue_keys), batch_size):
+            batch_keys = issue_keys[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            
+            try:
+                keys_str = ', '.join([f'"{key}"' for key in batch_keys])
+                jql = f"key IN ({keys_str})"
+                
+                self.logger.debug(f"批次 {batch_num}/{total_batches}: 獲取 {len(batch_keys)} 個 Issues")
+                
+                # 獲取這批 Issues
+                batch_issues_dict = self.jira_client.search_issues(jql, required_fields)
+                batch_issues = list(batch_issues_dict.values())
+                
+                all_issues.extend(batch_issues)
+                
+                self.logger.debug(f"批次 {batch_num}/{total_batches}: 成功獲取 {len(batch_issues)} 個 Issues")
+                
+            except Exception as e:
+                self.logger.error(f"批次 {batch_num}/{total_batches} 獲取失敗: {e}")
+                # 繼續處理下一批，不中斷整個流程
+                continue
+        
+        # 統計結果
+        found_keys = set(issue['key'] for issue in all_issues)
+        missing_keys = set(issue_keys) - found_keys
+        
+        if missing_keys:
+            self.logger.warning(f"未找到 {len(missing_keys)} 個 Issue Keys: {list(missing_keys)[:10]}...")
+        
+        self.logger.info(f"分批獲取完成：成功獲取 {len(all_issues)} 筆 JIRA Issues")
+        return all_issues
+    
     def _filter_issues_for_processing(self, config: SyncWorkflowConfig, 
                                     jira_issues: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -414,28 +473,15 @@ class SyncWorkflowManager:
                     if ticket_key:
                         issue_keys_dict[ticket_key] = True  # 字典自動去重
                 
-                # 3. 根據 Issue Keys 從 JIRA 獲取最新資料
+                # 3. 根據 Issue Keys 從 JIRA 分批獲取最新資料
                 if issue_keys_dict:
                     keys_list = list(issue_keys_dict.keys())
-                    keys_str = ', '.join([f'"{key}"' for key in keys_list])
-                    jql = f"key IN ({keys_str})"
-                    
-                    self.logger.info(f"根據 {len(keys_list)} 個 Issue Keys 從 JIRA 獲取資料")
-                    self.logger.debug(f"JQL: {jql}")
                     
                     # 獲取必要欄位
                     required_fields = self.field_processor.get_required_jira_fields()
-                    jira_issues_dict = self.jira_client.search_issues(jql, required_fields)
-                    filtered_issues = list(jira_issues_dict.values())
                     
-                    # 統計結果
-                    found_keys = set(issue['key'] for issue in filtered_issues)
-                    missing_keys = set(keys_list) - found_keys
-                    
-                    if missing_keys:
-                        self.logger.warning(f"未找到 {len(missing_keys)} 個 Issue Keys: {list(missing_keys)[:10]}...")
-                    
-                    self.logger.info(f"成功獲取 {len(filtered_issues)} 筆 JIRA Issues")
+                    # 使用分批處理方法
+                    filtered_issues = self._fetch_jira_issues_in_batches(keys_list, required_fields, batch_size=50)
                 else:
                     filtered_issues = []
                 
