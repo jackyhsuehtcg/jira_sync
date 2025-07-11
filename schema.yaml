@@ -81,6 +81,9 @@ field_mappings:
   "customfield_11603":
     lark_field: "Sprints"
     processor: "extract_simple"
+  "customfield_11604":
+    lark_field: "QA Start Date"
+    processor: "convert_datetime"
   customfield_test_comments:
     lark_field: Test Comments Field
     processor: extract_simple
