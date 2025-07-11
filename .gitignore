@@ -44,7 +44,6 @@ Thumbs.db
 
 # Data files
 data/*.db
-!data/user_mapping_cache.db
 data/*.json
 *.log
 *.log.*
@@ -80,5 +79,5 @@ htmlcov/
 # mypy
 .mypy_cache/
 .dmypy.json
-dmypy.jsonconfig.yaml
+dmypy.json
 config_prod.yaml
