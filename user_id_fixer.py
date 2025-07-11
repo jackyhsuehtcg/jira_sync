@@ -39,7 +39,8 @@ class UserIdFixer:
                 WHERE username IS NOT NULL AND username != ''
                   AND lark_email IS NOT NULL AND lark_email != ''
                   AND (lark_user_id IS NULL OR lark_user_id = '')
-                  AND is_empty = 0 AND is_pending = 0
+                  AND (is_empty IS NULL OR is_empty = 0) 
+                  AND (is_pending IS NULL OR is_pending = 0)
                 ORDER BY username
             """)
             
@@ -55,7 +56,8 @@ class UserIdFixer:
                 FROM user_mappings 
                 WHERE username IS NOT NULL AND username != ''
                   AND lark_email IS NOT NULL AND lark_email != ''
-                  AND is_empty = 0 AND is_pending = 0
+                  AND (is_empty IS NULL OR is_empty = 0) 
+                  AND (is_pending IS NULL OR is_pending = 0)
                 ORDER BY username
             """)
             
