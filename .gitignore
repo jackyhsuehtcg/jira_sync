@@ -44,6 +44,7 @@ Thumbs.db
 
 # Data files
 data/*.db
+!data/user_mapping_cache.db
 data/*.json
 *.log
 *.log.*
