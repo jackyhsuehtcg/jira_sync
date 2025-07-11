@@ -346,6 +346,44 @@ class SyncWorkflowManager:
             self.logger.error(f"冷啟動處理失敗: {e}")
             return False
     
+    def _extract_ticket_key(self, ticket_value: Any) -> Optional[str]:
+        """
+        從票據欄位值中提取 Issue Key
+        
+        Args:
+            ticket_value: 票據欄位值（可能是文字、連結或陣列）
+            
+        Returns:
+            提取的 Issue Key 或 None
+        """
+        try:
+            if not ticket_value:
+                return None
+                
+            # 處理不同類型的票據欄位值
+            if isinstance(ticket_value, dict):
+                # 連結類型，取 text 值
+                ticket_key = ticket_value.get('text', '').strip()
+            elif isinstance(ticket_value, list) and ticket_value:
+                # 陣列類型，取第一個元素
+                first_item = ticket_value[0]
+                if isinstance(first_item, dict):
+                    ticket_key = first_item.get('text', '').strip()
+                else:
+                    ticket_key = str(first_item).strip()
+            else:
+                # 純文字值
+                ticket_key = str(ticket_value).strip()
+            
+            # 驗證是否為有效的 Issue Key 格式（如 TP-3153, ICR-123）
+            if ticket_key and '-' in ticket_key:
+                return ticket_key
+                
+        except Exception as e:
+            self.logger.warning(f"提取 Issue Key 失敗: {e}")
+            
+        return None
+    
     def _filter_issues_for_processing(self, config: SyncWorkflowConfig, 
                                     jira_issues: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
@@ -359,16 +397,60 @@ class SyncWorkflowManager:
             (過濾後的 Issues, 過濾統計)
         """
         try:
-            # 在 full-update 模式下 (enable_cold_start_detection=False)，跳過時間戳過濾
+            # 在 full-update 模式下 (enable_cold_start_detection=False)，從 Lark 表格獲取 Issue Keys
             if not config.enable_cold_start_detection:
-                self.logger.info("Full-update 模式：跳過時間戳過濾，處理所有 Issues")
-                filtered_issues = jira_issues
+                self.logger.info("Full-update 模式：從 Lark 表格獲取現有記錄")
+                
+                # 1. 從 Lark 表格獲取所有記錄
+                existing_records = self.lark_client.get_all_records(config.table_id)
+                
+                # 2. 提取 Issue Keys 並使用字典自動去重
+                issue_keys_dict = {}
+                for record in existing_records:
+                    fields = record.get('fields', {})
+                    ticket_value = fields.get(config.ticket_field_name)
+                    
+                    ticket_key = self._extract_ticket_key(ticket_value)
+                    if ticket_key:
+                        issue_keys_dict[ticket_key] = True  # 字典自動去重
+                
+                # 3. 根據 Issue Keys 從 JIRA 獲取最新資料
+                if issue_keys_dict:
+                    keys_list = list(issue_keys_dict.keys())
+                    keys_str = ', '.join([f'"{key}"' for key in keys_list])
+                    jql = f"key IN ({keys_str})"
+                    
+                    self.logger.info(f"根據 {len(keys_list)} 個 Issue Keys 從 JIRA 獲取資料")
+                    self.logger.debug(f"JQL: {jql}")
+                    
+                    # 獲取必要欄位
+                    required_fields = self.field_processor.get_required_jira_fields()
+                    jira_issues_dict = self.jira_client.search_issues(jql, required_fields)
+                    filtered_issues = list(jira_issues_dict.values())
+                    
+                    # 統計結果
+                    found_keys = set(issue['key'] for issue in filtered_issues)
+                    missing_keys = set(keys_list) - found_keys
+                    
+                    if missing_keys:
+                        self.logger.warning(f"未找到 {len(missing_keys)} 個 Issue Keys: {list(missing_keys)[:10]}...")
+                    
+                    self.logger.info(f"成功獲取 {len(filtered_issues)} 筆 JIRA Issues")
+                else:
+                    filtered_issues = []
+                
                 filter_stats = {
-                    'total_issues': len(jira_issues),
-                    'filtered_issues': len(jira_issues),
+                    'total_lark_records': len(existing_records),
+                    'extracted_keys': len(issue_keys_dict),
+                    'fetched_issues': len(filtered_issues),
+                    'total_issues': len(filtered_issues),
+                    'filtered_issues': len(filtered_issues),
                     'skipped_issues': 0,
                     'filter_rate': 0
                 }
+                
+                self.logger.info(f"Full-update 模式統計: Lark 記錄 {len(existing_records)} → "
+                               f"Issue Keys {len(issue_keys_dict)} → JIRA Issues {len(filtered_issues)}")
             else:
                 filtered_issues, filter_stats = self.sync_state_manager.filter_issues_for_processing(
                     config.table_id, jira_issues
