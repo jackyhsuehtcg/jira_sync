@@ -78,16 +78,28 @@ python main.py --help
 **Web API**
 - `web_api.py` - Web API 服務
 
+### 🔧 **研究工具 (Study Tools)**
+
+**study_tools/**
+- `jira_ticket_fetcher.py` - 獨立 JIRA 票據取得工具
+- `lark_record_analyzer.py` - Lark Base 記錄分析工具
+- `parent_child_record_creator.py` - 父子記錄管理工具
+
+**研究工具功能**:
+- **完全獨立**: 不依賴主系統，可單獨使用
+- **資料分析**: 用於研究和分析 JIRA 票據和 Lark 記錄
+- **關係管理**: 支援 Lark Base 父子記錄的創建、更新和刪除
+- **靈活輸出**: 支援 JSON 輸出和格式化顯示
+
 ### 🔧 **維護工具**
 
 **用戶管理工具**
 - `user_id_fixer.py` - 用戶 ID 補齊工具
-- `user_cache_fixer.py` - 用戶快取修復工具
 
 **系統維護**
 - `data_cleaner.py` - 資料清理工具
 - `scheduled_cleanup.py` - 定期清理工具
-- `clean_tables.sh` - 表格清理腳本
+- `sync_tables.sh` - 表格同步腳本
 
 ### 📁 **資料目錄**
 
@@ -181,6 +193,50 @@ python main.py daemon
 
 # 檢視系統狀態
 python main.py status
+```
+
+## 研究工具使用
+
+### JIRA 票據取得工具
+
+```bash
+# 獲取單一票據
+python study_tools/jira_ticket_fetcher.py --ticket TCG-108387 --summary
+
+# 獲取多個票據
+python study_tools/jira_ticket_fetcher.py --ticket TCG-108387 --ticket TP-3999
+
+# 指定特定欄位
+python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --fields summary,status,assignee
+
+# 輸出到 JSON 檔案
+python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --output ticket_analysis.json
+```
+
+### Lark 記錄分析工具
+
+```bash
+# 分析 Lark Base 記錄
+python study_tools/lark_record_analyzer.py --url "https://example.larksuite.com/wiki/xxxxx" --search "Story-ARD-00001"
+
+# 輸出到檔案
+python study_tools/lark_record_analyzer.py --url "https://example.larksuite.com/wiki/xxxxx" --output analysis.json
+```
+
+### 父子記錄管理工具
+
+```bash
+# 創建父子記錄
+python study_tools/parent_child_record_creator.py --url "https://example.larksuite.com/wiki/xxxxx" \
+    --create --parent-story "Story-ARD-00010" --child-story "Story-ARD-00011"
+
+# 更新父子關係
+python study_tools/parent_child_record_creator.py --url "https://example.larksuite.com/wiki/xxxxx" \
+    --update --child-story "Story-ARD-00011" --new-parent-story "Story-ARD-00001"
+
+# 刪除父記錄關係
+python study_tools/parent_child_record_creator.py --url "https://example.larksuite.com/wiki/xxxxx" \
+    --remove-parent --child-story "Story-ARD-00011"
 ```
 
 ## 動態欄位對應
