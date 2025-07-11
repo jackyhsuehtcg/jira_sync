@@ -73,7 +73,8 @@ field_mappings:
     processor: "convert_datetime"
   "customfield_11601":
     lark_field: "Product"
-    processor: "extract_simple"
+    processor: "extract_nested"
+    nested_path: "value"
   "customfield_11300":
     lark_field: "Story Points"
     processor: "extract_simple"
