@@ -739,13 +739,14 @@ class SyncWorkflowManager:
             # 構建 JQL 查詢
             single_issue_jql = f"key = {issue_key}"
             
-            # 創建單一 Issue 配置
+            # 創建單一 Issue 配置 - 保持冷啟動檢測開啟
             single_config = SyncWorkflowConfig(
                 table_id=config.table_id,
                 jql_query=single_issue_jql,
                 ticket_field_name=config.ticket_field_name,
                 enable_user_mapping=config.enable_user_mapping,
-                enable_cold_start_detection=False  # 單一 Issue 不需要冷啟動
+                enable_cold_start_detection=True,  # 修正：保持冷啟動檢測開啟
+                excluded_fields=config.excluded_fields  # 添加：傳遞排除欄位設定
             )
             
             # 執行同步工作流程
