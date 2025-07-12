@@ -673,29 +673,24 @@ class FieldProcessor:
         Returns:
             Optional[str]: 格式化後的連結字串，如果不應顯示則返回 None
         """
-        type_info = link.get('type', {})
         outward = link.get('outwardIssue', {})
         inward = link.get('inwardIssue', {})
         
         formatted_links = []
         
         # 處理 outward 連結
-        if outward and outward.get('key') and type_info.get('outward'):
+        if outward and outward.get('key'):
             issue_key = outward['key']
             linked_prefix = self._get_issue_key_prefix(issue_key)
             if linked_prefix in allowed_prefixes:
-                link_type = type_info['outward']
-                jira_url = f"{self.jira_server_url}/browse/{issue_key}"
-                formatted_links.append(f"{link_type}: {jira_url}")
+                formatted_links.append(issue_key)
         
         # 處理 inward 連結
-        if inward and inward.get('key') and type_info.get('inward'):
+        if inward and inward.get('key'):
             issue_key = inward['key']
             linked_prefix = self._get_issue_key_prefix(issue_key)
             if linked_prefix in allowed_prefixes:
-                link_type = type_info['inward']
-                jira_url = f"{self.jira_server_url}/browse/{issue_key}"
-                formatted_links.append(f"{link_type}: {jira_url}")
+                formatted_links.append(issue_key)
         
         return '\n'.join(formatted_links) if formatted_links else None
     
