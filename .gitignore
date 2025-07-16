@@ -49,6 +49,7 @@ data/*.json
 *.log.*
 
 # Config files with sensitive data
+config.yaml
 config_local.yaml
 config_dev.yaml
 
