@@ -47,6 +47,7 @@ data/*.db
 data/*.json
 *.log
 *.log.*
+user_mapping_cache.db
 
 # Config files with sensitive data
 config.yaml
