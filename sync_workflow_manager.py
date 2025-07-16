@@ -558,7 +558,8 @@ class SyncWorkflowManager:
             if not config.enable_cold_start_detection:
                 self.logger.info("Full-update 模式：強制更新所有已存在記錄")
                 operations_dict = self.sync_state_manager.determine_sync_operations_with_force_update(
-                    config.table_id, filtered_issues
+                    config.table_id, filtered_issues, self.lark_client, self.lark_client._current_wiki_token, 
+                    config.ticket_field_name
                 )
             else:
                 # 使用狀態管理器決定操作類型

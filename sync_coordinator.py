@@ -592,11 +592,12 @@ class SyncCoordinator:
             # 獲取 Lark 表格中的所有記錄
             existing_records = workflow_manager.lark_client.get_all_records(table_info['table_id'])
             
-            # 執行快取重建
+            # 執行快取重建（清空快取模式）
             cache_result = self.sync_state_manager.prepare_cold_start(
                 table_info['table_id'], 
                 existing_records, 
-                table_info.get('ticket_field', 'Issue Key')
+                table_info.get('ticket_field', 'Issue Key'),
+                clear_cache=True
             )
             
             return {
@@ -644,11 +645,12 @@ class SyncCoordinator:
                     # 獲取 Lark 表格中的所有記錄
                     existing_records = workflow_manager.lark_client.get_all_records(table_info['table_id'])
                     
-                    # 執行快取重建
+                    # 執行快取重建（清空快取模式）
                     cache_result = self.sync_state_manager.prepare_cold_start(
                         table_info['table_id'], 
                         existing_records, 
-                        table_info.get('ticket_field', 'Issue Key')
+                        table_info.get('ticket_field', 'Issue Key'),
+                        clear_cache=True
                     )
                     
                     results[table_name] = {

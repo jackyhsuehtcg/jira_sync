@@ -434,6 +434,104 @@ python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --output ticket_analy
 - `study_tools/jira_ticket_fetcher.py`: 新增獨立 JIRA 票據取得工具
 - `CLAUDE.md`: 更新檔案結構和工具記錄
 
+### 6. 直接多維表格存取支援 ✅ (已完成)
+
+**需求描述**:
+- 測試並驗證直接存取獨立多維表格的能力
+- 跳過傳統的 wiki token 到 obj token 轉換過程
+- 支援使用 app token 直接存取多維表格
+
+**測試案例**:
+- **App Token**: `W01Nb79lha7d6WsuVh4l0kohg1z`
+- **Table ID**: `tblQq92YBQnIAFMl`
+- **應用名稱**: "WSD Projects"
+- **表格名稱**: "WSD Tickets"
+
+**測試結果**:
+```bash
+# ✅ 成功的 API 端點
+GET /open-apis/bitable/v1/apps/{app_token}                    # 應用資訊
+GET /open-apis/bitable/v1/apps/{app_token}/tables             # 表格列表
+GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records  # 記錄存取
+
+# ❌ 不支援的 API 端點  
+GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}  # 單一表格資訊 (404)
+```
+
+**功能特色**:
+- **直接存取**: 無需 wiki token 轉換，直接使用 app token
+- **效率提升**: 減少一層 API 轉換，降低延遲
+- **完整支援**: 支援應用資訊、表格列表、記錄 CRUD 操作
+- **適用範圍**: 獨立多維表格（非知識庫內嵌）
+
+**實作建議**:
+```python
+# 新增直接存取模式的 LarkClient 方法
+class LarkClient:
+    def connect_direct_app(self, app_token: str):
+        """直接連接到獨立多維表格應用"""
+        self._current_app_token = app_token
+        self._access_mode = "direct"
+    
+    def _get_api_base_url(self, table_id: str) -> str:
+        """根據存取模式決定 API 基礎路徑"""
+        if self._access_mode == "direct":
+            return f"{self.base_url}/bitable/v1/apps/{self._current_app_token}/tables/{table_id}"
+        else:
+            # 傳統 wiki token 模式
+            obj_token = self._get_obj_token()
+            return f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}"
+```
+
+**修改檔案**:
+- `temp/test_direct_table_access.py`: 新增直接存取測試工具
+- `CLAUDE.md`: 記錄測試結果和實作建議
+
+## ⚠️ 已知問題記錄
+
+### 問題 1: user_id_fixer 邏輯問題 🔴 (待修復)
+
+**問題描述**:
+- `user_id_fixer` 無法正確識別需要修復的用戶
+- 實際資料庫中有 131 個用戶缺少 `lark_user_id`
+- 但 `user_id_fixer` 報告找到 0 個需要修復的用戶
+
+**問題分析**:
+- 查詢條件中的 `is_empty` 邏輯可能過於嚴格
+- 需要檢查 `get_incomplete_users()` 方法的 SQL 查詢條件
+- 可能需要調整 `is_empty` 和 `is_pending` 的判斷邏輯
+
+**影響範圍**:
+- 用戶映射功能不完整
+- 同步過程中可能出現用戶資訊缺失
+
+### 問題 2: Cache Rebuild 邏輯問題 🔴 (待修復)
+
+**問題描述**:
+- 全表重建 (full-update) 過程中出現 "record not found" 錯誤
+- 嘗試更新不存在的記錄: `recuQCQfW3vTh8`
+- 重建程式應該是整表重建，不應該引用舊的記錄 ID
+
+**問題分析**:
+- 重建程式可能保留了舊的記錄 ID 快取
+- 可能在清理舊記錄和建立新記錄之間存在時機問題
+- 需要檢查重建程式是否正確清理本地快取
+
+**測試案例**:
+- 表格: `icr_table` (ID: `tblbe0tlMVpMmngz`)
+- 問題記錄: `recuQCQfW3vTh8`
+- 當前表格共有 2963 筆記錄，但不包含該記錄 ID
+
+**影響範圍**:
+- 全表重建失敗
+- 資料同步不完整
+- 可能導致資料不一致
+
+**建議修復方向**:
+1. 檢查重建程式的記錄 ID 快取清理邏輯
+2. 確保重建過程中完全重置記錄對應關係
+3. 添加記錄存在性檢查機制
+
 ---
 
 ## 📝 版本記錄
@@ -443,6 +541,8 @@ python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --output ticket_analy
 | 2025-07-10 | v1.0 | 初始文檔創建、批次更新優化、日誌分析 | Claude |
 | 2025-07-10 | v1.1 | Issue Link 過濾系統實作、config_path 修復 | Claude |
 | 2025-07-11 | v1.2 | 研究工具開發：JIRA 票據取得工具、父子記錄管理工具 | Claude |
+| 2025-07-14 | v1.3 | 直接多維表格存取支援：測試並驗證 app token 直接存取能力 | Claude |
+| 2025-07-14 | v1.4 | 問題記錄：user_id_fixer 邏輯問題、Cache Rebuild 邏輯問題 | Claude |
 
 ---
 

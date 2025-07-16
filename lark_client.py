@@ -536,6 +536,47 @@ class LarkRecordManager:
         
         self.logger.info(f"批次刪除完成，共刪除 {len(record_ids)} 筆記錄")
         return True
+    
+    def check_record_exists(self, obj_token: str, table_id: str, record_id: str) -> bool:
+        """
+        檢查記錄是否存在
+        
+        Args:
+            obj_token: App token
+            table_id: 表格 ID
+            record_id: 記錄 ID
+            
+        Returns:
+            bool: 記錄是否存在
+        """
+        try:
+            token = self.auth_manager.get_tenant_access_token()
+            if not token:
+                self.logger.error("無法獲取 Access Token")
+                return False
+            
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json'
+            }
+            
+            # 嘗試獲取單一記錄來檢查是否存在
+            url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/{record_id}"
+            response = requests.get(url, headers=headers, timeout=self.timeout)
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get('code') == 0
+            elif response.status_code == 404:
+                # 記錄不存在
+                return False
+            else:
+                self.logger.warning(f"檢查記錄存在性失敗，HTTP {response.status_code}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"檢查記錄存在性異常: {e}")
+            return False
 
 
 class LarkUserManager:
@@ -771,6 +812,24 @@ class LarkClient:
     def get_user_by_email(self, email: str) -> Optional[Dict]:
         """根據 Email 獲取用戶資訊"""
         return self.user_manager.get_user_by_email(email)
+    
+    def check_record_exists(self, table_id: str, record_id: str, wiki_token: str = None) -> bool:
+        """
+        檢查記錄是否存在
+        
+        Args:
+            table_id: 表格 ID
+            record_id: 記錄 ID
+            wiki_token: Wiki Token（可選）
+            
+        Returns:
+            bool: 記錄是否存在
+        """
+        obj_token = self._get_obj_token(wiki_token)
+        if not obj_token:
+            return False
+        
+        return self.record_manager.check_record_exists(obj_token, table_id, record_id)
     
     def _get_obj_token(self, wiki_token: str = None) -> Optional[str]:
         """獲取 Obj Token（內部方法）"""

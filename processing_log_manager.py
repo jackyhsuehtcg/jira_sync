@@ -127,6 +127,118 @@ class ProcessingLogManager:
             finally:
                 conn.close()
     
+    def clear_local_cache(self) -> bool:
+        """
+        清空本地處理日誌快取（SQLite 資料庫）
+        注意：這不會影響 Lark 表格資料，只清空本地快取
+        
+        Returns:
+            bool: 清空是否成功
+        """
+        try:
+            with self._get_transaction() as conn:
+                cursor = conn.cursor()
+                
+                # 清空本地快取記錄
+                cursor.execute('DELETE FROM processing_log')
+                
+                deleted_count = cursor.rowcount
+                self.logger.info(f"清空本地處理日誌快取：共刪除 {deleted_count} 筆記錄")
+                
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"清空本地處理日誌快取失敗: {e}")
+            return False
+    
+    def clear_all_records(self) -> bool:
+        """
+        [已棄用] 請使用 clear_local_cache() 方法
+        清空本地處理日誌快取（向後相容方法）
+        """
+        import warnings
+        warnings.warn("clear_all_records() 已棄用，請使用 clear_local_cache()", DeprecationWarning, stacklevel=2)
+        return self.clear_local_cache()
+    
+    def clean_invalid_record_ids(self, lark_client, table_id: str, wiki_token: str = None) -> int:
+        """
+        清理無效的記錄 ID（指向不存在記錄的快取項目）
+        
+        Args:
+            lark_client: Lark 客戶端實例
+            table_id: 表格 ID
+            wiki_token: Wiki Token（可選）
+            
+        Returns:
+            int: 清理的無效記錄數量
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # 獲取所有有 lark_record_id 的記錄
+                cursor.execute(
+                    'SELECT issue_key, lark_record_id FROM processing_log WHERE lark_record_id IS NOT NULL AND lark_record_id != ""'
+                )
+                
+                cached_records = cursor.fetchall()
+                invalid_keys = []
+                
+                self.logger.info(f"檢查 {len(cached_records)} 個快取記錄的有效性")
+                
+                for issue_key, lark_record_id in cached_records:
+                    # 檢查記錄是否仍然存在於 Lark 表格中
+                    if not lark_client.check_record_exists(table_id, lark_record_id, wiki_token):
+                        invalid_keys.append(issue_key)
+                        self.logger.debug(f"發現無效記錄 ID: {issue_key} -> {lark_record_id}")
+                
+                # 批次刪除無效的快取記錄
+                if invalid_keys:
+                    with self._get_transaction() as trans_conn:
+                        trans_cursor = trans_conn.cursor()
+                        placeholders = ','.join(['?' for _ in invalid_keys])
+                        trans_cursor.execute(
+                            f'DELETE FROM processing_log WHERE issue_key IN ({placeholders})',
+                            invalid_keys
+                        )
+                    
+                    self.logger.info(f"清理了 {len(invalid_keys)} 個無效的快取記錄")
+                else:
+                    self.logger.info("沒有發現無效的快取記錄")
+                
+                return len(invalid_keys)
+                
+        except Exception as e:
+            self.logger.error(f"清理無效記錄 ID 失敗: {e}")
+            return 0
+    
+    def remove_processing_log(self, issue_key: str) -> bool:
+        """
+        移除指定 Issue 的處理日誌
+        
+        Args:
+            issue_key: Issue Key
+            
+        Returns:
+            bool: 移除是否成功
+        """
+        try:
+            with self._get_transaction() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('DELETE FROM processing_log WHERE issue_key = ?', (issue_key,))
+                
+                if cursor.rowcount > 0:
+                    self.logger.debug(f"移除處理日誌: {issue_key}")
+                    return True
+                else:
+                    self.logger.debug(f"處理日誌不存在: {issue_key}")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"移除處理日誌失敗 {issue_key}: {e}")
+            return False
+    
     def get_last_processed_time(self, issue_key: str) -> Optional[int]:
         """
         獲取指定 Issue 的最後處理時間

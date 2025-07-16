@@ -378,6 +378,8 @@ def main():
   %(prog)s cache --rebuild                      # 從 Lark 表格重建所有快取
   %(prog)s cache --rebuild --team management    # 從 Lark 表格重建團隊快取
   %(prog)s cache --rebuild --team management --table tp_table  # 從 Lark 表格重建表格快取
+  
+  注意：重建快取前請先刪除對應的 processing_log_*.db 檔案以確保完全重建
         """
     )
     
@@ -413,7 +415,7 @@ def main():
     cache_parser.add_argument('--team', help='指定團隊名稱')
     cache_parser.add_argument('--table', help='指定表格名稱')
     cache_parser.add_argument('--rebuild', action='store_true', 
-                            help='從 Lark 表格重建快取')
+                            help='從 Lark 表格重建快取（重建前請先刪除 data/processing_log_*.db 檔案）')
     
     args = parser.parse_args()
     

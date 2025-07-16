@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from processing_log_manager import ProcessingLogManager
+from field_processor import FieldProcessor
 
 
 class SyncStateManager:
@@ -108,7 +109,7 @@ class SyncStateManager:
             return True
     
     def prepare_cold_start(self, table_id: str, existing_lark_records: List[Dict[str, Any]], 
-                          ticket_field_name: str = "Issue Key") -> Dict[str, Any]:
+                          ticket_field_name: str = "Issue Key", clear_cache: bool = False) -> Dict[str, Any]:
         """
         準備冷啟動：將現有 Lark 記錄註冊到處理日誌
         
@@ -116,12 +117,27 @@ class SyncStateManager:
             table_id: 表格 ID
             existing_lark_records: 現有 Lark 記錄列表
             ticket_field_name: 票據欄位名稱
+            clear_cache: 是否先清空快取（rebuild 模式使用）
             
         Returns:
             冷啟動準備結果
         """
         try:
             log_manager = self.get_processing_log_manager(table_id)
+            
+            # 如果是 rebuild 模式，先清空快取
+            if clear_cache:
+                self.logger.info("Rebuild 模式：清空本地快取")
+                if not log_manager.clear_local_cache():
+                    self.logger.error("清空本地快取失敗")
+                    return {
+                        'table_id': table_id,
+                        'total_lark_records': 0,
+                        'valid_records': 0,
+                        'recorded_count': 0,
+                        'success': False,
+                        'error': '清空本地快取失敗'
+                    }
             
             # 建立 ticket -> record_id 映射
             ticket_to_record_map = {}
@@ -305,14 +321,87 @@ class SyncStateManager:
                 'stats': {'create': len(filtered_issues), 'update': 0, 'total': len(filtered_issues)}
             }
     
+    def _resolve_ticket_field_name(self, table_id: str, lark_client=None, wiki_token: str = None, 
+                                  schema_path: str = "schema.yaml") -> str:
+        """
+        動態解析票據欄位名稱，基於 schema 配置和 Lark 表格可用欄位
+        
+        Args:
+            table_id: 表格 ID
+            lark_client: Lark 客戶端實例
+            wiki_token: Wiki Token
+            schema_path: Schema 配置檔案路徑
+            
+        Returns:
+            解析到的票據欄位名稱，或預設值 "Issue Key"
+        """
+        try:
+            # 如果沒有 lark_client，返回預設值
+            if not lark_client:
+                return "Issue Key"
+            
+            # 獲取 Lark 表格可用欄位
+            available_fields = lark_client.get_table_fields(table_id, wiki_token)
+            if not available_fields:
+                self.logger.warning("無法獲取 Lark 表格欄位，使用預設票據欄位名稱")
+                return "Issue Key"
+            
+            # 載入 schema 配置
+            try:
+                import yaml
+                from pathlib import Path
+                
+                schema_file = Path(schema_path)
+                if not schema_file.exists():
+                    self.logger.warning(f"Schema 檔案不存在: {schema_path}，使用預設票據欄位名稱")
+                    return "Issue Key"
+                
+                with open(schema_file, 'r', encoding='utf-8') as f:
+                    schema = yaml.safe_load(f)
+                
+                field_mappings = schema.get('field_mappings', {})
+                key_config = field_mappings.get('key', {})
+                possible_fields = key_config.get('lark_field', ["Issue Key"])
+                
+                # 確保 possible_fields 是列表
+                if isinstance(possible_fields, str):
+                    possible_fields = [possible_fields]
+                
+                # 按 schema 順序尋找在 Lark 中存在的欄位
+                for schema_field in possible_fields:
+                    if schema_field in available_fields:
+                        self.logger.info(f"動態解析票據欄位: {schema_field} (schema 匹配)")
+                        return schema_field
+                
+                # 如果都找不到匹配，使用 Lark 可用欄位的第一個作為預設值
+                if available_fields:
+                    default_field = available_fields[0]
+                    self.logger.warning(f"未找到 schema 匹配欄位，使用 Lark 第一個欄位: {default_field}")
+                    return default_field
+                
+            except Exception as e:
+                self.logger.error(f"載入 schema 配置失敗: {e}")
+            
+            # 所有方法都失敗時，返回硬編碼預設值
+            return "Issue Key"
+            
+        except Exception as e:
+            self.logger.error(f"解析票據欄位名稱失敗: {e}")
+            return "Issue Key"
+    
     def determine_sync_operations_with_force_update(self, table_id: str, 
-                                                   filtered_issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+                                                   filtered_issues: List[Dict[str, Any]], 
+                                                   lark_client=None, wiki_token: str = None, 
+                                                   ticket_field_name: str = "Issue Key") -> Dict[str, List[Dict[str, Any]]]:
         """
         決定同步操作類型（full-update 模式，強制更新所有已存在記錄）
         
         Args:
             table_id: 表格 ID
             filtered_issues: 過濾後的 Issues 列表
+            lark_client: Lark 客戶端實例（用於驗證記錄存在性）
+            wiki_token: Wiki Token（可選）
+            ticket_field_name: 票據欄位名稱（用於正確提取 issue key）
             
         Returns:
             {'create': [issues], 'update': [issues_with_record_id]}
@@ -323,8 +412,48 @@ class SyncStateManager:
         try:
             log_manager = self.get_processing_log_manager(table_id)
             
+            # Full-update 模式：第一步清空本地快取
+            self.logger.info("Full-update 模式：清空本地快取")
+            if not log_manager.clear_local_cache():
+                self.logger.error("清空本地快取失敗")
+                return {
+                    'create': filtered_issues,  # 失敗時預設為創建
+                    'update': [],
+                    'stats': {'create': len(filtered_issues), 'update': 0, 'total': len(filtered_issues)}
+                }
+            
+            # 第二步：獲取 Lark 記錄並強制更新快取
+            if lark_client:
+                self.logger.info("Full-update 模式：從 Lark 獲取記錄並更新快取")
+                try:
+                    existing_records = lark_client.get_all_records(table_id, wiki_token)
+                    
+                    # 使用 prepare_cold_start 來重建快取（使用正確的票據欄位名稱）
+                    # 現在使用傳入的 ticket_field_name 參數，確保與配置一致
+                    cold_start_result = self.prepare_cold_start(table_id, existing_records, ticket_field_name)
+                    
+                    # 如果使用傳入的欄位名稱重建失敗或記錄數很少，嘗試動態解析欄位名稱
+                    if (not cold_start_result['success'] or cold_start_result['recorded_count'] == 0) and len(existing_records) > 0:
+                        self.logger.warning(f"使用票據欄位 '{ticket_field_name}' 重建快取失敗或無記錄，嘗試動態解析")
+                        
+                        # 嘗試動態解析票據欄位名稱
+                        resolved_field_name = self._resolve_ticket_field_name(table_id, lark_client, wiki_token)
+                        if resolved_field_name != ticket_field_name:
+                            self.logger.info(f"動態解析到不同的票據欄位: {resolved_field_name}，重新嘗試重建快取")
+                            cold_start_result = self.prepare_cold_start(table_id, existing_records, resolved_field_name)
+                    
+                    if cold_start_result['success']:
+                        self.logger.info(f"快取重建完成，記錄了 {cold_start_result['recorded_count']} 筆記錄")
+                    else:
+                        self.logger.warning("快取重建失敗，但繼續執行同步")
+                except Exception as e:
+                    self.logger.error(f"獲取 Lark 記錄失敗: {e}")
+            
+            # 第三步：決定同步操作
+            # 注意：filtered_issues 是從 Lark 表格提取的 Issue Keys，所以理論上都應該有對應記錄
             create_operations = []
             update_operations = []
+            missing_records = []
             
             for issue in filtered_issues:
                 issue_key = issue.get('key')
@@ -332,26 +461,37 @@ class SyncStateManager:
                     self.logger.warning("Issue 缺少 key，跳過")
                     continue
                 
-                # 檢查是否已存在於 Lark 表格中
+                # 檢查重建後的快取中是否有記錄 ID
                 lark_record_id = log_manager.get_lark_record_id(issue_key)
                 
                 if lark_record_id:
-                    # 有記錄 ID，強制執行更新（忽略時間戳檢查）
+                    # 有記錄 ID，執行更新
                     issue_with_record_id = issue.copy()
                     issue_with_record_id['lark_record_id'] = lark_record_id
                     update_operations.append(issue_with_record_id)
                 else:
-                    # 沒有記錄 ID，執行創建
+                    # 理論上不應該發生：從 Lark 提取的 Issue 在快取中找不到記錄 ID
+                    self.logger.warning(f"警告：從 Lark 提取的 Issue {issue_key} 在重建快取中找不到記錄 ID")
+                    missing_records.append(issue_key)
+                    # 在 full-update 模式下，這種情況仍然執行創建以保證數據完整性
                     create_operations.append(issue)
+            
+            # 如果有缺失記錄，記錄警告
+            if missing_records:
+                self.logger.warning(f"Full-update 模式中有 {len(missing_records)} 個 Issue 在重建快取中找不到記錄 ID: {missing_records[:5]}...")  # 只顯示前5個
             
             operation_stats = {
                 'create': len(create_operations),
                 'update': len(update_operations),
-                'total': len(filtered_issues)
+                'total': len(filtered_issues),
+                'missing_records': len(missing_records)
             }
             
-            self.logger.info(f"Full-update 同步操作決定: {operation_stats['create']} 筆創建, "
-                           f"{operation_stats['update']} 筆強制更新")
+            log_message = f"Full-update 同步操作決定: {operation_stats['create']} 筆創建, {operation_stats['update']} 筆強制更新"
+            if missing_records:
+                log_message += f" (警告: {operation_stats['missing_records']} 筆缺失記錄 ID)"
+            
+            self.logger.info(log_message)
             
             return {
                 'create': create_operations,
