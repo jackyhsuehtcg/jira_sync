@@ -338,9 +338,9 @@ class FieldProcessor:
             elif processor == "extract_versions":
                 return self._extract_versions(raw_value, config)
             elif processor == "extract_links":
-                return self._extract_links(raw_value)
+                return self._extract_links(raw_value, config)
             elif processor == "extract_links_filtered":
-                return self._extract_links_filtered(raw_value, issue_key)
+                return self._extract_links_filtered(raw_value, issue_key, config)
             elif processor == "extract_ticket_link":
                 return self._extract_ticket_link(raw_value)
             else:
@@ -563,57 +563,87 @@ class FieldProcessor:
             return [str(versions_array)]
         return str(versions_array)
     
-    def _extract_links(self, links_array: Any) -> Optional[str]:
+    def _extract_links(self, links_array: Any, config: Dict[str, Any] = None) -> Any:
         """
         提取關聯連結資訊，並格式化為 "link_type: JIRA_URL" 形式
         
         Args:
             links_array: JIRA issuelinks 陣列
+            config: 欄位配置，包含 field_type
             
         Returns:
-            str: 格式化後的關聯 Issue 列表（換行符分隔）或 None
+            list: 格式化後的關聯 Issue 列表（多選欄位）或 str: 格式化後的關聯 Issue 列表（換行符分隔）
         """
         if not links_array or not self.jira_server_url:
+            # 根據欄位類型返回適當的空值
+            if config and config.get('field_type') == 'multiselect':
+                return []
             return None
         
         if isinstance(links_array, list):
-            formatted_links = []
-            for link in links_array:
-                if isinstance(link, dict):
-                    type_info = link.get('type', {})
-                    outward = link.get('outwardIssue', {})
-                    inward = link.get('inwardIssue', {})
-                    
-                    # 處理 outward 連結
-                    if outward and outward.get('key') and type_info.get('outward'):
-                        issue_key = outward['key']
-                        link_type = type_info['outward']
-                        jira_url = f"{self.jira_server_url}/browse/{issue_key}"
-                        formatted_links.append(f"{link_type}: {jira_url}")
-                    
-                    # 處理 inward 連結
-                    if inward and inward.get('key') and type_info.get('inward'):
-                        issue_key = inward['key']
-                        link_type = type_info['inward']
-                        jira_url = f"{self.jira_server_url}/browse/{issue_key}"
-                        formatted_links.append(f"{link_type}: {jira_url}")
-            
-            return '\n'.join(formatted_links) if formatted_links else None
+            if config and config.get('field_type') == 'multiselect':
+                # 多選欄位模式：返回 issue keys 列表
+                issue_keys = []
+                for link in links_array:
+                    if isinstance(link, dict):
+                        outward = link.get('outwardIssue', {})
+                        inward = link.get('inwardIssue', {})
+                        
+                        # 處理 outward 連結
+                        if outward and outward.get('key'):
+                            issue_keys.append(outward['key'])
+                        
+                        # 處理 inward 連結
+                        if inward and inward.get('key'):
+                            issue_keys.append(inward['key'])
+                
+                return issue_keys
+            else:
+                # 文字欄位模式：返回格式化的連結字串
+                formatted_links = []
+                for link in links_array:
+                    if isinstance(link, dict):
+                        type_info = link.get('type', {})
+                        outward = link.get('outwardIssue', {})
+                        inward = link.get('inwardIssue', {})
+                        
+                        # 處理 outward 連結
+                        if outward and outward.get('key') and type_info.get('outward'):
+                            issue_key = outward['key']
+                            link_type = type_info['outward']
+                            jira_url = f"{self.jira_server_url}/browse/{issue_key}"
+                            formatted_links.append(f"{link_type}: {jira_url}")
+                        
+                        # 處理 inward 連結
+                        if inward and inward.get('key') and type_info.get('inward'):
+                            issue_key = inward['key']
+                            link_type = type_info['inward']
+                            jira_url = f"{self.jira_server_url}/browse/{issue_key}"
+                            formatted_links.append(f"{link_type}: {jira_url}")
+                
+                return '\n'.join(formatted_links) if formatted_links else None
         
+        # 對於非列表類型，根據欄位類型返回適當格式
+        if config and config.get('field_type') == 'multiselect':
+            return [str(links_array)]
         return str(links_array)
     
-    def _extract_links_filtered(self, links_array: Any, issue_key: str) -> Optional[str]:
+    def _extract_links_filtered(self, links_array: Any, issue_key: str, config: Dict[str, Any] = None) -> Any:
         """
         根據配置規則過濾並提取關聯連結資訊
         
         Args:
             links_array: JIRA issuelinks 陣列
             issue_key: 當前 issue 的 key，用於決定適用的過濾規則
+            config: 欄位配置，包含 field_type
             
         Returns:
-            str: 過濾後格式化的關聯 Issue 列表（換行符分隔）或 None
+            list: 過濾後格式化的關聯 Issue 列表（多選欄位）或 str: 過濾後格式化的關聯 Issue 列表（換行符分隔）
         """
         if not links_array or not self.jira_server_url:
+            # 根據欄位類型返回適當的空值
+            if config and config.get('field_type') == 'multiselect':
+                return []
             return None
         
         # 取得當前 issue 的前綴
@@ -624,24 +654,52 @@ class FieldProcessor:
         
         # 如果規則未啟用，返回原始結果
         if not rules.get('enabled', True):
-            return self._extract_links(links_array)
+            return self._extract_links(links_array, config)
         
         # 獲取允許顯示的前綴列表
         allowed_prefixes = rules.get('display_link_prefixes', [])
         if not allowed_prefixes:  # 空陣列表示顯示所有
-            return self._extract_links(links_array)
+            return self._extract_links(links_array, config)
         
         # 過濾並格式化連結
         if isinstance(links_array, list):
             filtered_links = []
             for link in links_array:
                 if isinstance(link, dict):
-                    formatted_link = self._format_single_link_if_allowed(link, allowed_prefixes)
-                    if formatted_link:
-                        filtered_links.append(formatted_link)
+                    allowed_keys = self._format_single_link_if_allowed(link, allowed_prefixes)
+                    filtered_links.extend(allowed_keys)
             
-            result = '\n'.join(filtered_links) if filtered_links else None
-            return result
+            # 根據配置的欄位類型返回適當格式
+            if config and config.get('field_type') == 'multiselect':
+                return filtered_links  # 返回列表用於多選欄位（issue keys）
+            else:
+                # 對於文字欄位，需要重新格式化為 "link_type: URL" 格式
+                formatted_text_links = []
+                for link in links_array:
+                    if isinstance(link, dict):
+                        type_info = link.get('type', {})
+                        outward = link.get('outwardIssue', {})
+                        inward = link.get('inwardIssue', {})
+                        
+                        # 處理 outward 連結
+                        if outward and outward.get('key') and type_info.get('outward'):
+                            issue_key = outward['key']
+                            linked_prefix = self._get_issue_key_prefix(issue_key)
+                            if linked_prefix in allowed_prefixes:
+                                link_type = type_info['outward']
+                                jira_url = f"{self.jira_server_url}/browse/{issue_key}"
+                                formatted_text_links.append(f"{link_type}: {jira_url}")
+                        
+                        # 處理 inward 連結
+                        if inward and inward.get('key') and type_info.get('inward'):
+                            issue_key = inward['key']
+                            linked_prefix = self._get_issue_key_prefix(issue_key)
+                            if linked_prefix in allowed_prefixes:
+                                link_type = type_info['inward']
+                                jira_url = f"{self.jira_server_url}/browse/{issue_key}"
+                                formatted_text_links.append(f"{link_type}: {jira_url}")
+                
+                return '\n'.join(formatted_text_links) if formatted_text_links else None
         
         return str(links_array)
     
@@ -662,37 +720,36 @@ class FieldProcessor:
         match = re.match(r'^([A-Z]+)-', issue_key.strip().upper())
         return match.group(1) if match else ""
     
-    def _format_single_link_if_allowed(self, link: Dict, allowed_prefixes: List[str]) -> Optional[str]:
+    def _format_single_link_if_allowed(self, link: Dict, allowed_prefixes: List[str]) -> List[str]:
         """
-        格式化單個連結，如果其前綴在允許列表中
+        格式化單個連結，如果其前綴在允許列表中，返回 issue key 列表
         
         Args:
             link: 單個 issue link 字典
             allowed_prefixes: 允許顯示的前綴列表
             
         Returns:
-            Optional[str]: 格式化後的連結字串，如果不應顯示則返回 None
+            List[str]: 允許顯示的 issue key 列表
         """
+        result_keys = []
         outward = link.get('outwardIssue', {})
         inward = link.get('inwardIssue', {})
-        
-        formatted_links = []
         
         # 處理 outward 連結
         if outward and outward.get('key'):
             issue_key = outward['key']
             linked_prefix = self._get_issue_key_prefix(issue_key)
             if linked_prefix in allowed_prefixes:
-                formatted_links.append(issue_key)
+                result_keys.append(issue_key)
         
         # 處理 inward 連結
         if inward and inward.get('key'):
             issue_key = inward['key']
             linked_prefix = self._get_issue_key_prefix(issue_key)
             if linked_prefix in allowed_prefixes:
-                formatted_links.append(issue_key)
+                result_keys.append(issue_key)
         
-        return '\n'.join(formatted_links) if formatted_links else None
+        return result_keys
     
     def _extract_ticket_link(self, value: Any) -> Optional[str]:
         """

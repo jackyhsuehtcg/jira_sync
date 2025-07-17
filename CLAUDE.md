@@ -434,7 +434,47 @@ python study_tools/jira_ticket_fetcher.py --ticket TP-3999 --output ticket_analy
 - `study_tools/jira_ticket_fetcher.py`: 新增獨立 JIRA 票據取得工具
 - `CLAUDE.md`: 更新檔案結構和工具記錄
 
-### 6. 直接多維表格存取支援 ✅ (已完成)
+### 6. Issue Links 多選欄位支援 ✅ (已完成)
+
+**需求描述**:
+- 將 issue links 從文字格式改為多選欄位格式
+- 多選欄位中每個選項為 issue key（如 TP-1001, TCG-2002）
+- 保持向後相容，支援文字模式和多選模式
+
+**解決方案**:
+```yaml
+# schema.yaml 配置
+"issuelinks":
+  lark_field: "Linked Issues"
+  processor: "extract_links_filtered"
+  field_type: "multiselect"  # 新增多選欄位類型
+```
+
+**修改檔案**:
+- `field_processor.py`: 更新 `_extract_links` 和 `_extract_links_filtered` 方法
+- `schema.yaml`: 為 issuelinks 欄位添加 `field_type: "multiselect"` 配置
+
+**功能特色**:
+- **雙模式支援**: 根據 `field_type` 配置自動選擇返回格式
+  - `multiselect`: 返回 issue keys 列表 `['TP-1001', 'TCG-2002']`
+  - 其他/未配置: 返回格式化字串 `"has subtask: https://jira.../TP-1001\nblocks: https://jira.../TCG-2002"`
+- **過濾相容**: 保持原有的前綴過濾功能，但在多選模式下只返回符合條件的 issue keys
+- **向後相容**: 未配置 `field_type` 的欄位維持原有文字格式行為
+
+**測試驗證**:
+```python
+# 多選模式測試
+config = {'field_type': 'multiselect'}
+result = processor._apply_processor('extract_links', test_links, 'issuelinks', 'ICR-123', config)
+# Result: ['TP-1001', 'TCG-2002']
+
+# 文字模式測試
+config = {}
+result = processor._apply_processor('extract_links', test_links, 'issuelinks', 'ICR-123', config)
+# Result: "has subtask: https://jira.../TP-1001\nblocks: https://jira.../TCG-2002"
+```
+
+### 7. 直接多維表格存取支援 ✅ (已完成)
 
 **需求描述**:
 - 測試並驗證直接存取獨立多維表格的能力
@@ -543,6 +583,7 @@ class LarkClient:
 | 2025-07-11 | v1.2 | 研究工具開發：JIRA 票據取得工具、父子記錄管理工具 | Claude |
 | 2025-07-14 | v1.3 | 直接多維表格存取支援：測試並驗證 app token 直接存取能力 | Claude |
 | 2025-07-14 | v1.4 | 問題記錄：user_id_fixer 邏輯問題、Cache Rebuild 邏輯問題 | Claude |
+| 2025-07-17 | v1.5 | Issue Links 多選欄位支援：將文字格式改為多選，支援雙模式 | Claude |
 
 ---
 

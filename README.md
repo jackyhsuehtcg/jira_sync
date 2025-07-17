@@ -35,6 +35,8 @@ python main.py --help
 - **批次處理**: 使用 Lark Base API 的批次新增/更新功能，支援大量資料處理
 - **多團隊支援**: 支援多個團隊的獨立配置
 - **動態欄位對應**: 自動掃描 Lark 表格欄位，配置驅動的欄位對應
+- **多選欄位支援**: Issue Links、Components、Fix Versions 等支援多選欄位格式
+- **Issue Links 過濾**: 根據 issue 前綴配置過濾顯示的關聯 issues
 - **🔥 即時配置重載**: 零停機配置更新，支援檔案監控和熱重載
 - **直接 JQL 配置**: 在配置檔中直接指定完整的 JQL 查詢字串
 - **智慧批次分割**: 自動處理 API 限制，避免批次過大或 URL 過長問題
@@ -270,18 +272,38 @@ python duplicate_checker.py --schedule
 - **票據欄位**: 超連結格式的 JIRA Issue Key
 - **文字欄位**: Title、Status、Components 等
 - **時間欄位**: Created、Updated、Due Date 等
+- **多選欄位**: Issue Links、Components、Fix Versions 等（返回選項列表）
 - **自定義欄位**: 支援 JIRA 自定義欄位對應
 
 ### 配置範例
 ```yaml
+# schema.yaml 欄位對應配置
 field_mappings:
-  jira_to_lark:
-    "summary": "Title"                    # 標題
-    "status.name": "JIRA Status"          # 狀態
-    "components[0].name": "Components"    # 組件
-    "created": "Created"                  # 建立時間
-    "updated": "Updated Date"             # 更新時間
-    "customfield_10502": "SIT Date"       # 自定義欄位
+  "summary":
+    lark_field: "Title"
+    processor: "extract_simple"
+  "status":
+    lark_field: "JIRA Status"
+    processor: "extract_nested"
+    nested_path: "name"
+  "components":
+    lark_field: "Components"
+    processor: "extract_components"
+    field_type: "multiselect"            # 多選欄位
+  "issuelinks":
+    lark_field: "Linked Issues"
+    processor: "extract_links_filtered"
+    field_type: "multiselect"            # 多選欄位（返回 issue keys）
+  "fixVersions":
+    lark_field: "Fix Versions"
+    processor: "extract_versions"
+    field_type: "multiselect"            # 多選欄位
+  "created":
+    lark_field: "Created"
+    processor: "convert_datetime"         # 時間欄位
+  "customfield_10502":
+    lark_field: "SIT Date"
+    processor: "convert_datetime"         # 自定義時間欄位
 ```
 
 ## 批次處理
@@ -389,12 +411,17 @@ Options:
 ## 注意事項
 
 1. **單向同步**: 僅支援 JIRA → Lark Base 方向，Lark Base 的修改會被覆蓋
-2. **動態欄位**: 支援所有在 config.yaml 中定義的欄位對應
-3. **API 限制**: 
+2. **動態欄位**: 支援所有在 schema.yaml 中定義的欄位對應
+3. **多選欄位**: 
+   - 在 schema.yaml 中配置 `field_type: "multiselect"` 的欄位會返回選項列表
+   - Issue Links 多選欄位返回 issue keys（如 `['TP-1001', 'TCG-2002']`）
+   - Components、Fix Versions 多選欄位返回名稱列表
+   - 未配置 field_type 的欄位維持原有文字格式
+4. **API 限制**: 
    - Lark Base 批次操作限制 500 記錄（系統自動處理）
    - JIRA JQL 查詢 URL 長度限制（full-update 模式自動分批）
-4. **權限要求**: 確保 Lark Base 應用程式有足夠的權限操作目標表格
-5. **⚠️ 重要：票據欄位必須是超連結欄位**: 
+5. **權限要求**: 確保 Lark Base 應用程式有足夠的權限操作目標表格
+6. **⚠️ 重要：票據欄位必須是超連結欄位**: 
    - 票據欄位名稱必須在 `field_mappings.ticket_fields` 清單中
    - 欄位類型必須是超連結 (type 15)，不能是文字欄位
    - 系統會自動識別第一個符合條件的票據欄位
@@ -410,7 +437,12 @@ Options:
 4. **JQL 錯誤**: 驗證 `jql_query_string` 語法是否正確
 5. **TextFieldConvFail 錯誤**: 票據欄位不是超連結欄位，需要修改欄位類型
 6. **批次處理錯誤**: 檢查是否超過 API 限制，系統會自動分批處理
-7. **欄位對應失敗**: 確認 `field_mappings.jira_to_lark` 中的對應關係正確
+7. **欄位對應失敗**: 確認 schema.yaml 中的欄位對應關係正確
+8. **多選欄位格式錯誤**: 
+   - 確認多選欄位在 Lark Base 中的類型正確
+   - 檢查 schema.yaml 中是否正確配置 `field_type: "multiselect"`
+   - Issue Links 欄位應該返回 issue keys 列表，而非完整 URL
+9. **Issue Links 過濾問題**: 檢查 config.yaml 中的 `issue_link_rules` 配置是否正確
 
 ### 除錯模式
 

@@ -54,6 +54,7 @@ field_mappings:
   "issuelinks":
     lark_field: "Linked Issues"
     processor: "extract_links_filtered"
+    field_type: "multiselect"
 
   # 自定義欄位
   "customfield_10404":
