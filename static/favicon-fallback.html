@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { margin: 0; padding: 0; }
+        .favicon {
+            width: 16px;
+            height: 16px;
+            background: #1976d2;
+            border-radius: 3px;
+            position: relative;
+            overflow: hidden;
+        }
+        .sync-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            border: 1px solid white;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="favicon">
+        <div class="sync-icon"></div>
+    </div>
+</body>
+</html>

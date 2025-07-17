@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 背景 -->
+  <rect width="16" height="16" rx="3" fill="#1976d2"/>
+  
+  <!-- 同步符號 - 經典的旋轉箭頭設計 -->
+  <g stroke="white" stroke-width="2" fill="none" stroke-linecap="round">
+    <!-- 上方弧形 -->
+    <path d="M12,6 A4,4 0 0,0 4,6"/>
+    <!-- 上方箭頭 -->
+    <path d="M10,4 L12,6 L10,8"/>
+    
+    <!-- 下方弧形 -->  
+    <path d="M4,10 A4,4 0 0,0 12,10"/>
+    <!-- 下方箭頭 -->
+    <path d="M6,12 L4,10 L6,8"/>
+  </g>
+</svg>

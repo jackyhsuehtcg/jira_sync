@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 背景漸層 -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2196f3;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1976d2;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="16" height="16" rx="4" fill="url(#bg)"/>
+  
+  <!-- 同步符號 - 簡潔的雙向箭頭 -->
+  <g fill="white">
+    <!-- 上半部圓弧箭頭 -->
+    <path d="M8,3 A4,4 0 0,1 13,8 L11.5,8 A2.5,2.5 0 0,0 8,5.5 L8,4 L6,6 L8,8 L8,6.5 A1.5,1.5 0 0,1 9.5,8 L12,8 A4,4 0 0,1 8,13 L8,11.5"/>
+    <!-- 下半部箭頭 -->
+    <path d="M8,13 L8,11.5 A1.5,1.5 0 0,1 6.5,8 L4,8 A4,4 0 0,1 8,3 L8,4.5 L10,6 L8,8 L8,9.5 A2.5,2.5 0 0,0 4.5,8 L3,8 A4,4 0 0,1 8,13"/>
+  </g>
+</svg>

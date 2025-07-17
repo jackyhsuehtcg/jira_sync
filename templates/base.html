@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}JIRA-Lark 同步系統{% endblock %}</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon-sync.svg') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon-sync.svg') }}" type="image/svg+xml">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="d-flex vh-100">
+        <!-- 左側導覽邊欄 -->
+        <div class="sidebar d-flex flex-column flex-shrink-0 p-3">
+            <a href="{{ url_for('index') }}" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-decoration-none brand-title">
+                <i class="fas fa-sync-alt me-2"></i>
+                <span class="fs-5">JIRA-Lark 同步</span>
+            </a>
+            <hr>
+            <ul class="nav nav-pills flex-column mb-auto">
+                <li class="nav-item">
+                    <a href="{{ url_for('teams') }}" class="nav-link {% if request.endpoint == 'teams' or request.endpoint == 'index' %}active{% endif %}">
+                        <i class="fas fa-users fa-fw me-2"></i>團隊配置
+                    </a>
+                </li>
+                <li class="mt-3">
+                    <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#helpModal">
+                        <i class="fas fa-question-circle fa-fw me-2"></i>說明
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- 右側主內容區 -->
+        <main class="main-content flex-grow-1 p-4">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- 說明模態框 -->
+    <div class="modal fade" id="helpModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-question-circle me-2"></i>使用說明
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="text-primary">功能介紹</h6>
+                            <ul class="list-unstyled">
+                                <li class="mb-2">
+                                    <i class="fas fa-users fa-fw me-2 text-muted"></i>
+                                    <strong>團隊配置</strong>: 管理各團隊的 JIRA 和 Lark 表格同步設定
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6 class="text-primary">特色功能</h6>
+                            <ul class="list-unstyled">
+                                <li class="mb-2">
+                                    <i class="fas fa-lock fa-fw me-2 text-muted"></i>
+                                    <strong>多人編輯保護</strong>: 防止多人同時修改配置造成衝突
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-comment-alt fa-fw me-2 text-muted"></i>
+                                    <strong>保留註解格式</strong>: 編輯配置時保留原有註解和格式
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-sync-alt fa-fw me-2 text-muted"></i>
+                                    <strong>實時更新</strong>: 配置修改後即時生效
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-search fa-fw me-2 text-muted"></i>
+                                    <strong>智能檢測</strong>: 自動檢測重複記錄和異常狀況
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-shield-alt fa-fw me-2 text-muted"></i>
+                                    <strong>安全可靠</strong>: 操作前備份，支援回滾
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="alert alert-info" role="alert">
+                        <i class="fas fa-lightbulb me-2"></i>
+                        <strong>提示:</strong> 修改配置前請先備份，重要操作會自動記錄到日誌中。
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">關閉</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

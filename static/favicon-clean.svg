@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 背景 -->
+  <rect width="16" height="16" rx="3" fill="#1976d2"/>
+  
+  <!-- 同步符號 - 類似Material Design的sync icon -->
+  <g fill="white">
+    <!-- 左上到右下的彎曲箭頭 -->
+    <path d="M4,5 Q8,2 12,5 L11,6 Q8,4 5,6 Z"/>
+    <polygon points="11,4 13,5 11,7"/>
+    
+    <!-- 右下到左上的彎曲箭頭 -->
+    <path d="M12,11 Q8,14 4,11 L5,10 Q8,12 11,10 Z"/>
+    <polygon points="5,12 3,11 5,9"/>
+  </g>
+</svg>

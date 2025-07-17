@@ -1,0 +1,795 @@
+{% extends "base.html" %}
+
+{% block title %}團隊配置 - JIRA-Lark 同步系統{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0">
+        <i class="fas fa-users me-2"></i>團隊配置管理
+    </h1>
+    <div>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTeamModal">
+            <i class="fas fa-plus me-2"></i>新增團隊
+        </button>
+        <button class="btn btn-outline-secondary" onclick="location.reload()">
+            <i class="fas fa-sync-alt me-2"></i>重新載入
+        </button>
+    </div>
+</div>
+
+<!-- 統計資訊 -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="stat-number" id="teamCount">-</div>
+                <div class="stat-label">總團隊數</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="stat-number" id="tableCount">-</div>
+                <div class="stat-label">總表格數</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 團隊列表 -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">
+            <i class="fas fa-list me-2"></i>團隊列表
+        </h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>團隊名稱</th>
+                        <th>顯示名稱</th>
+                        <th>表格數量</th>
+                        <th>狀態</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="teamsTableBody">
+                    <tr>
+                        <td colspan="5" class="text-center">載入中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 新增團隊模態框 -->
+<div class="modal fade" id="addTeamModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-plus me-2"></i>新增團隊
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addTeamForm">
+                    <div class="mb-3">
+                        <label for="teamName" class="form-label">團隊名稱 *</label>
+                        <input type="text" class="form-control" id="teamName" required>
+                        <div class="form-text">唯一識別符，建議使用英文小寫和底線</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="displayName" class="form-label">顯示名稱 *</label>
+                        <input type="text" class="form-control" id="displayName" required>
+                        <div class="form-text">團隊的顯示名稱</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="teamEnabled" checked>
+                            <label class="form-check-label" for="teamEnabled">
+                                啟用團隊同步
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="syncInterval" class="form-label">團隊預設同步間隔（秒）</label>
+                        <input type="number" class="form-control" id="syncInterval" value="300" min="60">
+                        <div class="form-text">團隊預設的自動同步間隔時間，最小60秒</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">同步設定</label>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="batchSize" class="form-label">批次大小</label>
+                                <input type="number" class="form-control" id="batchSize" value="100" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="maxRetries" class="form-label">最大重試次數</label>
+                                <input type="number" class="form-control" id="maxRetries" value="3" min="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="retryDelay" class="form-label">重試延遲（秒）</label>
+                                <input type="number" class="form-control" id="retryDelay" value="1.0" step="0.1" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">表格配置</label>
+                        <div id="tablesConfig">
+                            <div class="table-config-item border rounded p-3 mb-3">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <h6 class="mb-0">表格配置</h6>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label">表格名稱 *</label>
+                                        <input type="text" class="form-control table-name" required 
+                                               placeholder="例如: icr_table">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">顯示名稱 *</label>
+                                        <input type="text" class="form-control table-display-name" required 
+                                               placeholder="例如: ICR Tickets">
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label">表格 ID *</label>
+                                        <input type="text" class="form-control table-id" required 
+                                               placeholder="例如: tblu2PdgGvKvRjWT">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">票據欄位名稱</label>
+                                        <input type="text" class="form-control ticket-field" 
+                                               placeholder="例如: TCG Tickets">
+                                    </div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <label class="form-label">同步間隔（秒）</label>
+                                        <input type="number" class="form-control table-sync-interval" value="60" min="60">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-check mt-4">
+                                            <input class="form-check-input table-enabled" type="checkbox" checked>
+                                            <label class="form-check-label">
+                                                啟用此表格
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">JQL 查詢 *</label>
+                                    <div class="d-flex gap-2">
+                                        <div class="flex-grow-1 jql-display-container">
+                                            <div class="jql-display p-2 bg-light border rounded text-muted" style="white-space: pre-wrap; font-family: monospace; font-size: 0.875rem;">點擊編輯按鈕輸入 JQL 查詢
+範例: project = ICR AND issuetype in standardIssueTypes() AND status in (Open, "In Progress", Resolved)</div>
+                                            <textarea class="form-control jql-query d-none" rows="3" required 
+                                                      placeholder="例如: project = ICR AND issuetype in standardIssueTypes() AND status in (Open, &quot;In Progress&quot;, Resolved)"></textarea>
+                                        </div>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm jql-edit-btn">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text">
+                                        <small class="text-muted">
+                                            <strong>常用 JQL 範例：</strong><br>
+                                            • <code>project = TCG AND status in (Open, "In Progress")</code><br>
+                                            • <code>project = ICR AND updated > -30d</code><br>
+                                            • <code>assignee = currentUser() AND status != Closed</code>
+                                        </small>
+                                    </div>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">排除欄位</label>
+                                    <input type="text" class="form-control excluded-fields" 
+                                           placeholder="用逗號分隔，例如: priority,resolution">
+                                    <div class="form-text">不同步的欄位名稱，用逗號分隔</div>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="addTableConfig">
+                            <i class="fas fa-plus me-1"></i>新增表格
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveTeamBtn">
+                    <i class="fas fa-save me-2"></i>保存
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 編輯團隊模態框 -->
+<div class="modal fade" id="editTeamModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-edit me-2"></i>編輯團隊
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editTeamForm">
+                    <input type="hidden" id="editTeamName">
+                    
+                    <div class="mb-3">
+                        <label for="editDisplayName" class="form-label">顯示名稱 *</label>
+                        <input type="text" class="form-control" id="editDisplayName" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="editTeamEnabled">
+                            <label class="form-check-label" for="editTeamEnabled">
+                                啟用團隊同步
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="editSyncInterval" class="form-label">團隊預設同步間隔（秒）</label>
+                        <input type="number" class="form-control" id="editSyncInterval" min="60">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">同步設定</label>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="editBatchSize" class="form-label">批次大小</label>
+                                <input type="number" class="form-control" id="editBatchSize" min="1">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="editMaxRetries" class="form-label">最大重試次數</label>
+                                <input type="number" class="form-control" id="editMaxRetries" min="0">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="editRetryDelay" class="form-label">重試延遲（秒）</label>
+                                <input type="number" class="form-control" id="editRetryDelay" step="0.1" min="0">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">表格配置</label>
+                        <div id="editTablesConfig"></div>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="addEditTableConfig">
+                            <i class="fas fa-plus me-1"></i>新增表格
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="updateTeamBtn">
+                    <i class="fas fa-save me-2"></i>更新
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let teamsData = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadTeams();
+    
+    // 新增團隊相關事件
+    document.getElementById('addTableConfig').addEventListener('click', function() {
+        addTableConfigRow('tablesConfig');
+    });
+    
+    document.getElementById('addEditTableConfig').addEventListener('click', function() {
+        addTableConfigRow('editTablesConfig');
+    });
+    
+    document.getElementById('saveTeamBtn').addEventListener('click', saveTeam);
+    document.getElementById('updateTeamBtn').addEventListener('click', updateTeam);
+    
+    // 初始化 JQL 編輯按鈕
+    initJqlEditButtons(document);
+});
+
+function initJqlEditButtons(container) {
+    const editButtons = container.querySelectorAll('.jql-edit-btn');
+    editButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const displayContainer = this.parentElement.querySelector('.jql-display-container');
+            const display = displayContainer.querySelector('.jql-display');
+            const textarea = displayContainer.querySelector('.jql-query');
+            
+            if (textarea.classList.contains('d-none')) {
+                // 切換到編輯模式
+                display.classList.add('d-none');
+                textarea.classList.remove('d-none');
+                textarea.focus();
+                this.innerHTML = '<i class="fas fa-check"></i>';
+            } else {
+                // 切換到顯示模式
+                display.textContent = textarea.value;
+                display.classList.remove('d-none');
+                textarea.classList.add('d-none');
+                this.innerHTML = '<i class="fas fa-edit"></i>';
+            }
+        });
+    });
+}
+
+function loadTeams() {
+    fetch('/api/config/teams')
+        .then(response => response.json())
+        .then(data => {
+            if (data.teams) {
+                teamsData = data.teams;
+                renderTeamsTable();
+                updateStats();
+            }
+        })
+        .catch(error => {
+            console.error('載入團隊配置失敗:', error);
+            showAlert('載入團隊配置失敗: ' + error.message, 'danger');
+        });
+}
+
+function updateStats() {
+    const totalTeams = teamsData.length;
+    let totalTables = 0;
+    
+    teamsData.forEach(team => {
+        totalTables += team.tables.length;
+    });
+    
+    document.getElementById('teamCount').textContent = totalTeams;
+    document.getElementById('tableCount').textContent = totalTables;
+}
+
+function renderTeamsTable() {
+    const tbody = document.getElementById('teamsTableBody');
+    
+    if (teamsData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">尚未配置任何團隊</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = teamsData.map(team => {
+        const config = team.config;
+        const displayName = config.display_name || team.name;
+        const enabled = config.enabled !== false;
+        
+        return `
+            <tr>
+                <td><strong>${team.name}</strong></td>
+                <td>${displayName}</td>
+                <td><span class="badge bg-info">${team.tables.length}</span></td>
+                <td><span class="badge ${enabled ? 'bg-success' : 'bg-secondary'}">${enabled ? '已啟用' : '已停用'}</span></td>
+                <td>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-primary" onclick="editTeam('${team.name}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="deleteTeam('${team.name}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function addTableConfigRow(containerId) {
+    const container = document.getElementById(containerId);
+    const newRow = document.createElement('div');
+    newRow.className = 'table-config-item border rounded p-3 mb-3';
+    newRow.innerHTML = `
+        <div class="d-flex justify-content-between mb-2">
+            <h6 class="mb-0">表格配置</h6>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeTableConfig(this)">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="row mb-2">
+            <div class="col-md-6">
+                <label class="form-label">表格名稱 *</label>
+                <input type="text" class="form-control table-name" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">顯示名稱 *</label>
+                <input type="text" class="form-control table-display-name" required>
+            </div>
+        </div>
+        <div class="row mb-2">
+            <div class="col-md-6">
+                <label class="form-label">表格 ID *</label>
+                <input type="text" class="form-control table-id" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">票據欄位名稱</label>
+                <input type="text" class="form-control ticket-field">
+            </div>
+        </div>
+        <div class="row mb-2">
+            <div class="col-md-6">
+                <label class="form-label">同步間隔（秒）</label>
+                <input type="number" class="form-control table-sync-interval" value="60" min="60">
+            </div>
+            <div class="col-md-6">
+                <div class="form-check mt-4">
+                    <input class="form-check-input table-enabled" type="checkbox" checked>
+                    <label class="form-check-label">
+                        啟用此表格
+                    </label>
+                </div>
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label">JQL 查詢 *</label>
+            <div class="d-flex gap-2">
+                <div class="flex-grow-1 jql-display-container">
+                    <div class="jql-display p-2 bg-light border rounded text-muted" style="white-space: pre-wrap; font-family: monospace; font-size: 0.875rem;">點擊編輯按鈕輸入 JQL 查詢
+範例: project = ICR AND issuetype in standardIssueTypes() AND status in (Open, "In Progress", Resolved)</div>
+                    <textarea class="form-control jql-query d-none" rows="3" required placeholder="例如: project = ICR AND issuetype in standardIssueTypes() AND status in (Open, &quot;In Progress&quot;, Resolved)"></textarea>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm jql-edit-btn">
+                    <i class="fas fa-edit"></i>
+                </button>
+            </div>
+            <div class="form-text">
+                <small class="text-muted">
+                    <strong>常用 JQL 範例：</strong><br>
+                    • <code>project = TCG AND status in (Open, "In Progress")</code><br>
+                    • <code>project = ICR AND updated > -30d</code><br>
+                    • <code>assignee = currentUser() AND status != Closed</code>
+                </small>
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label">排除欄位</label>
+            <input type="text" class="form-control excluded-fields" 
+                   placeholder="用逗號分隔，例如: priority,resolution">
+            <div class="form-text">不同步的欄位名稱，用逗號分隔</div>
+        </div>
+    `;
+    container.appendChild(newRow);
+    
+    // 初始化新增行的 JQL 編輯功能
+    initJqlEditButtons(newRow);
+}
+
+function removeTableConfig(button) {
+    button.closest('.table-config-item').remove();
+}
+
+function saveTeam() {
+    const teamName = document.getElementById('teamName').value.trim();
+    const displayName = document.getElementById('displayName').value.trim();
+    const teamEnabled = document.getElementById('teamEnabled').checked;
+    const syncInterval = parseInt(document.getElementById('syncInterval').value);
+    const batchSize = parseInt(document.getElementById('batchSize').value);
+    const maxRetries = parseInt(document.getElementById('maxRetries').value);
+    const retryDelay = parseFloat(document.getElementById('retryDelay').value);
+    
+    if (!teamName || !displayName) {
+        showAlert('請填寫所有必填欄位', 'warning');
+        return;
+    }
+    
+    // 收集表格配置
+    const tableConfigs = {};
+    const tableItems = document.querySelectorAll('#tablesConfig .table-config-item');
+    
+    for (let item of tableItems) {
+        const tableName = item.querySelector('.table-name').value.trim();
+        const tableDisplayName = item.querySelector('.table-display-name').value.trim();
+        const tableId = item.querySelector('.table-id').value.trim();
+        const ticketField = item.querySelector('.ticket-field').value.trim();
+        const tableSyncInterval = parseInt(item.querySelector('.table-sync-interval').value);
+        const tableEnabled = item.querySelector('.table-enabled').checked;
+        const jqlQuery = item.querySelector('.jql-query').value.trim();
+        const excludedFields = item.querySelector('.excluded-fields').value.trim();
+        
+        if (tableName && tableDisplayName && tableId && jqlQuery) {
+            const tableConfig = {
+                enabled: tableEnabled,
+                jql_query: jqlQuery,
+                name: tableDisplayName,
+                sync_interval: tableSyncInterval,
+                table_id: tableId
+            };
+            
+            if (ticketField) {
+                tableConfig.ticket_field = ticketField;
+            }
+            
+            if (excludedFields) {
+                tableConfig.excluded_fields = excludedFields.split(',').map(field => field.trim());
+            }
+            
+            tableConfigs[tableName] = tableConfig;
+        }
+    }
+    
+    if (Object.keys(tableConfigs).length === 0) {
+        showAlert('請至少配置一個表格', 'warning');
+        return;
+    }
+    
+    const teamConfig = {
+        display_name: displayName,
+        enabled: teamEnabled,
+        sync_interval: syncInterval,
+        sync_settings: {
+            batch_size: batchSize,
+            max_retries: maxRetries,
+            retry_delay: retryDelay
+        },
+        tables: tableConfigs
+    };
+    
+    fetch(`/api/config/teams/${teamName}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(teamConfig)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showAlert('保存失敗: ' + data.error, 'danger');
+        } else {
+            showAlert('團隊配置保存成功', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('addTeamModal')).hide();
+            document.getElementById('addTeamForm').reset();
+            loadTeams();
+        }
+    })
+    .catch(error => {
+        console.error('保存團隊配置失敗:', error);
+        showAlert('保存失敗: ' + error.message, 'danger');
+    });
+}
+
+function editTeam(teamName) {
+    const team = teamsData.find(t => t.name === teamName);
+    if (!team) return;
+    
+    const config = team.config;
+    const syncSettings = config.sync_settings || {};
+    
+    document.getElementById('editTeamName').value = teamName;
+    document.getElementById('editDisplayName').value = config.display_name || '';
+    document.getElementById('editTeamEnabled').checked = config.enabled !== false;
+    document.getElementById('editSyncInterval').value = config.sync_interval || 300;
+    document.getElementById('editBatchSize').value = syncSettings.batch_size || 100;
+    document.getElementById('editMaxRetries').value = syncSettings.max_retries || 3;
+    document.getElementById('editRetryDelay').value = syncSettings.retry_delay || 1.0;
+    
+    // 載入表格配置
+    const container = document.getElementById('editTablesConfig');
+    container.innerHTML = '';
+    
+    const tables = config.tables || {};
+    for (let [tableName, tableConfig] of Object.entries(tables)) {
+        const item = document.createElement('div');
+        item.className = 'table-config-item border rounded p-3 mb-3';
+        
+        // 處理 excluded_fields
+        const excludedFieldsStr = Array.isArray(tableConfig.excluded_fields) 
+            ? tableConfig.excluded_fields.join(', ') 
+            : (tableConfig.excluded_fields || '');
+        
+        item.innerHTML = `
+            <div class="d-flex justify-content-between mb-2">
+                <h6 class="mb-0">表格配置</h6>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeTableConfig(this)">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+            <div class="row mb-2">
+                <div class="col-md-6">
+                    <label class="form-label">表格名稱 *</label>
+                    <input type="text" class="form-control table-name" value="${tableName}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">顯示名稱 *</label>
+                    <input type="text" class="form-control table-display-name" value="${tableConfig.name || ''}" required>
+                </div>
+            </div>
+            <div class="row mb-2">
+                <div class="col-md-6">
+                    <label class="form-label">表格 ID *</label>
+                    <input type="text" class="form-control table-id" value="${tableConfig.table_id || ''}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">票據欄位名稱</label>
+                    <input type="text" class="form-control ticket-field" value="${tableConfig.ticket_field || ''}">
+                </div>
+            </div>
+            <div class="row mb-2">
+                <div class="col-md-6">
+                    <label class="form-label">同步間隔（秒）</label>
+                    <input type="number" class="form-control table-sync-interval" value="${tableConfig.sync_interval || 60}" min="60">
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input table-enabled" type="checkbox" ${tableConfig.enabled !== false ? 'checked' : ''}>
+                        <label class="form-check-label">
+                            啟用此表格
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">JQL 查詢 *</label>
+                <div class="d-flex gap-2">
+                    <div class="flex-grow-1 jql-display-container">
+                        <div class="jql-display p-2 bg-light border rounded" style="white-space: pre-wrap; font-family: monospace; font-size: 0.875rem; min-height: 3rem;">${(tableConfig.jql_query || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                        <textarea class="form-control jql-query d-none" rows="3" required>${tableConfig.jql_query || ''}</textarea>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm jql-edit-btn">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">排除欄位</label>
+                <input type="text" class="form-control excluded-fields" value="${excludedFieldsStr}" 
+                       placeholder="用逗號分隔，例如: priority,resolution">
+                <div class="form-text">不同步的欄位名稱，用逗號分隔</div>
+            </div>
+        `;
+        container.appendChild(item);
+    }
+    
+    // 初始化所有 JQL 編輯按鈕
+    initJqlEditButtons(document.getElementById('editTablesConfig'));
+    
+    const modal = new bootstrap.Modal(document.getElementById('editTeamModal'));
+    modal.show();
+}
+
+function updateTeam() {
+    const teamName = document.getElementById('editTeamName').value;
+    const displayName = document.getElementById('editDisplayName').value.trim();
+    const teamEnabled = document.getElementById('editTeamEnabled').checked;
+    const syncInterval = parseInt(document.getElementById('editSyncInterval').value);
+    const batchSize = parseInt(document.getElementById('editBatchSize').value);
+    const maxRetries = parseInt(document.getElementById('editMaxRetries').value);
+    const retryDelay = parseFloat(document.getElementById('editRetryDelay').value);
+    
+    if (!displayName) {
+        showAlert('請填寫顯示名稱', 'warning');
+        return;
+    }
+    
+    // 收集表格配置
+    const tableConfigs = {};
+    const tableItems = document.querySelectorAll('#editTablesConfig .table-config-item');
+    
+    for (let item of tableItems) {
+        const tableName = item.querySelector('.table-name').value.trim();
+        const tableDisplayName = item.querySelector('.table-display-name').value.trim();
+        const tableId = item.querySelector('.table-id').value.trim();
+        const ticketField = item.querySelector('.ticket-field').value.trim();
+        const tableSyncInterval = parseInt(item.querySelector('.table-sync-interval').value);
+        const tableEnabled = item.querySelector('.table-enabled').checked;
+        const jqlQuery = item.querySelector('.jql-query').value.trim();
+        const excludedFields = item.querySelector('.excluded-fields').value.trim();
+        
+        if (tableName && tableDisplayName && tableId && jqlQuery) {
+            const tableConfig = {
+                enabled: tableEnabled,
+                jql_query: jqlQuery,
+                name: tableDisplayName,
+                sync_interval: tableSyncInterval,
+                table_id: tableId
+            };
+            
+            if (ticketField) {
+                tableConfig.ticket_field = ticketField;
+            }
+            
+            if (excludedFields) {
+                tableConfig.excluded_fields = excludedFields.split(',').map(field => field.trim());
+            }
+            
+            tableConfigs[tableName] = tableConfig;
+        }
+    }
+    
+    const teamConfig = {
+        display_name: displayName,
+        enabled: teamEnabled,
+        sync_interval: syncInterval,
+        sync_settings: {
+            batch_size: batchSize,
+            max_retries: maxRetries,
+            retry_delay: retryDelay
+        },
+        tables: tableConfigs
+    };
+    
+    fetch(`/api/config/teams/${teamName}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(teamConfig)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showAlert('更新失敗: ' + data.error, 'danger');
+        } else {
+            showAlert('團隊配置更新成功', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('editTeamModal')).hide();
+            loadTeams();
+        }
+    })
+    .catch(error => {
+        console.error('更新團隊配置失敗:', error);
+        showAlert('更新失敗: ' + error.message, 'danger');
+    });
+}
+
+function deleteTeam(teamName) {
+    if (!confirm(`確定要刪除團隊 "${teamName}" 嗎？此操作無法復原。`)) {
+        return;
+    }
+    
+    fetch(`/api/config/teams/${teamName}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            showAlert('刪除失敗: ' + data.error, 'danger');
+        } else {
+            showAlert('團隊刪除成功', 'success');
+            loadTeams();
+        }
+    })
+    .catch(error => {
+        console.error('刪除團隊失敗:', error);
+        showAlert('刪除失敗: ' + error.message, 'danger');
+    });
+}
+
+function showAlert(message, type) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.main-content').insertBefore(alertDiv, document.querySelector('.main-content').firstChild);
+    
+    // 3秒後自動消失
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 3000);
+}
+</script>
+{% endblock %}

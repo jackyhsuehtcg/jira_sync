@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- 背景 -->
+  <rect width="32" height="32" rx="6" fill="#1976d2"/>
+  
+  <!-- 同步符號 -->
+  <g fill="white" stroke="white" stroke-width="1" stroke-linecap="round">
+    <!-- 第一個循環箭頭 -->
+    <path d="M8 12 A6 6 0 0 1 20 12" fill="none" stroke-width="2"/>
+    <polygon points="18,10 22,12 18,14" fill="white"/>
+    
+    <!-- 第二個循環箭頭 -->
+    <path d="M24 20 A6 6 0 0 1 12 20" fill="none" stroke-width="2"/>
+    <polygon points="14,18 10,20 14,22" fill="white"/>
+  </g>
+  
+  <!-- 中央點 -->
+  <circle cx="16" cy="16" r="2" fill="#ffeb3b"/>
+</svg>

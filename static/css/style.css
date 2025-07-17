@@ -1,0 +1,363 @@
+/* 1. 全域樣式與調色盤 (Gmail/SaaS 風格) */
+:root {
+    --primary-color: #4A69BD; /* 岩石藍 */
+    --primary-color-light: #EAF0FE; /* 主色調的淺色，用於懸停和選中 */
+    --body-bg: #F6F8FC;
+    --container-bg: #FFFFFF;
+    --dark-text: #2d3748;
+    --muted-text: #718096;
+    --border-color: #e2e8f0;
+
+    --success-bg-subtle: #d1e7dd;
+    --success-text-emphasis: #0f5132;
+    --warning-bg-subtle: #fff3cd;
+    --warning-text-emphasis: #664d03;
+    --danger-bg-subtle: #f8d7da;
+    --danger-text-emphasis: #58151c;
+    --info-bg-subtle: #cff4fc;
+    --info-text-emphasis: #055160;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--body-bg);
+    color: var(--dark-text);
+}
+
+/* 2. 左側導覽邊欄 */
+.sidebar {
+    width: 260px;
+    background-color: var(--container-bg);
+    border-right: 1px solid var(--border-color);
+}
+
+.brand-title {
+    color: var(--dark-text);
+}
+
+.sidebar .nav-link {
+    color: var(--muted-text);
+    font-weight: 500;
+    border-radius: 6px;
+    margin-bottom: 0.25rem;
+}
+
+.sidebar .nav-link:hover {
+    background-color: var(--primary-color-light);
+    color: var(--primary-color);
+}
+
+.sidebar .nav-link.active {
+    background-color: var(--primary-color-light);
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.sidebar .nav-link .fa-fw {
+    width: 1.25em;
+}
+
+/* 3. 右側主內容區 */
+.main-content {
+    overflow-y: auto; /* 內容超長時，只有右側滾動 */
+}
+
+/* 4. 按鈕樣式 */
+.btn {
+    border-radius: 8px;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border: 1px solid transparent;
+    transition: all 0.2s ease-in-out;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #FFFFFF;
+}
+
+.btn-primary:hover {
+    background-color: #3e58a1; /* 加深一點 */
+    border-color: #3e58a1;
+}
+
+.btn-outline-secondary {
+    border-color: var(--border-color);
+    color: var(--muted-text);
+    background-color: var(--container-bg);
+}
+
+.btn-outline-secondary:hover {
+    background-color: #f8f9fa;
+    color: var(--dark-text);
+}
+
+.btn-outline-primary {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-outline-primary:hover {
+    background-color: var(--primary-color);
+    color: #FFFFFF;
+}
+
+.btn-outline-danger {
+    border-color: var(--danger-text-emphasis);
+    color: var(--danger-text-emphasis);
+}
+
+.btn-outline-danger:hover {
+    background-color: var(--danger-text-emphasis);
+    color: #FFFFFF;
+}
+
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+/* 5. 狀態按鈕 (Subtle 風格) */
+.btn-success { background-color: var(--success-bg-subtle) !important; border-color: var(--success-bg-subtle) !important; color: var(--success-text-emphasis) !important; }
+.btn-success:hover { background-color: #c3e6cb !important; }
+
+.btn-warning { background-color: var(--warning-bg-subtle) !important; border-color: var(--warning-bg-subtle) !important; color: var(--warning-text-emphasis) !important; }
+.btn-warning:hover { background-color: #f8e9b7 !important; }
+
+.btn-danger { background-color: var(--danger-bg-subtle) !important; border-color: var(--danger-bg-subtle) !important; color: var(--danger-text-emphasis) !important; }
+.btn-danger:hover { background-color: #f5c2c7 !important; }
+
+.btn-info { background-color: var(--info-bg-subtle) !important; border-color: var(--info-bg-subtle) !important; color: var(--info-text-emphasis) !important; }
+.btn-info:hover { background-color: #b6effb !important; }
+
+/* 6. 卡片和表格 */
+.card {
+    background-color: var(--container-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: none;
+}
+
+.table th {
+    color: var(--muted-text);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border-color);
+    background-color: #f8f9fa;
+}
+
+.table-hover > tbody > tr:hover > * {
+    background-color: #f8f9fa;
+}
+
+/* 7. 徽章 */
+.badge { 
+    font-weight: 500; 
+    border-radius: 12px; 
+    padding: 0.4em 0.8em; 
+}
+
+.badge.bg-success { 
+    background-color: var(--success-bg-subtle) !important; 
+    color: var(--success-text-emphasis) !important; 
+}
+
+.badge.bg-danger { 
+    background-color: var(--danger-bg-subtle) !important; 
+    color: var(--danger-text-emphasis) !important; 
+}
+
+.badge.bg-warning { 
+    background-color: var(--warning-bg-subtle) !important; 
+    color: var(--warning-text-emphasis) !important; 
+}
+
+.badge.bg-info { 
+    background-color: var(--info-bg-subtle) !important; 
+    color: var(--info-text-emphasis) !important; 
+}
+
+/* 8. 表單控制項 */
+.form-control, .form-select {
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 0.2rem rgba(74, 105, 189, 0.25);
+}
+
+/* 9. 警報樣式 */
+.alert {
+    border-radius: 8px;
+    border: none;
+}
+
+.alert-success {
+    background-color: var(--success-bg-subtle);
+    color: var(--success-text-emphasis);
+}
+
+.alert-warning {
+    background-color: var(--warning-bg-subtle);
+    color: var(--warning-text-emphasis);
+}
+
+.alert-danger {
+    background-color: var(--danger-bg-subtle);
+    color: var(--danger-text-emphasis);
+}
+
+.alert-info {
+    background-color: var(--info-bg-subtle);
+    color: var(--info-text-emphasis);
+}
+
+/* 10. 下拉選單 */
+.dropdown-menu {
+    z-index: 1050;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.table-responsive {
+    overflow: visible;
+}
+
+/* 11. 載入動畫 */
+.spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+}
+
+/* 12. 程式碼區塊 */
+.code-block {
+    background-color: #f8f9fa;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 0.875rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 13. 日誌查看器樣式 */
+.log-viewer {
+    background-color: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 0.875rem;
+    padding: 1rem;
+    border-radius: 6px;
+    height: 500px;
+    overflow-y: auto;
+}
+
+.log-line {
+    margin-bottom: 0.25rem;
+    white-space: pre-wrap;
+}
+
+.log-line.error {
+    color: #f48771;
+}
+
+.log-line.warning {
+    color: #dcdcaa;
+}
+
+.log-line.info {
+    color: #9cdcfe;
+}
+
+.log-line.debug {
+    color: #808080;
+}
+
+/* 14. 工具卡片樣式 */
+.tool-card {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.tool-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 15. 統計卡片樣式 */
+.stat-card {
+    text-align: center;
+    padding: 1.5rem;
+}
+
+.stat-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.stat-label {
+    color: var(--muted-text);
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* 16. 圖示對齊修正 */
+.btn i {
+    vertical-align: middle;
+}
+
+.fas, .fa {
+    vertical-align: middle;
+}
+
+/* 確保按鈕群組中的圖示正確對齊 */
+.btn-group .btn i {
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* 表格中的按鈕對齊 - 關鍵修正 */
+.table .btn-group {
+    vertical-align: middle;
+}
+
+.table td {
+    vertical-align: middle;
+}
+
+/* 表格欄位統一靠左對齊 */
+.table th,
+.table td {
+    text-align: left;
+}
+
+/* 操作欄位按鈕不要額外的左邊距 */
+.table td:nth-child(5) {
+    padding-left: 0.75rem; /* 使用預設的表格內邊距 */
+}
+
+/* 表格中的按鈕尺寸統一 */
+.table .btn-sm {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.2;
+}
+
+/* 17. 響應式設計 */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        position: fixed;
+        z-index: 1000;
+        height: auto;
+        display: none;
+    }
+    
+    .main-content {
+        margin-left: 0;
+    }
+}

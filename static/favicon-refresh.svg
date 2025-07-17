@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <!-- 背景 -->
+  <rect width="16" height="16" rx="3" fill="#1976d2"/>
+  
+  <!-- 刷新/同步符號 -->
+  <g stroke="white" stroke-width="1.8" fill="white" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 主要的刷新圓圈 -->
+    <path d="M13,8 A5,5 0 1,1 8,3" fill="none"/>
+    <!-- 箭頭 -->
+    <polygon points="11,3 13,1 13,5" stroke="none"/>
+    
+    <!-- 第二個方向的圓圈 -->
+    <path d="M3,8 A5,5 0 1,1 8,13" fill="none"/>
+    <!-- 箭頭 -->
+    <polygon points="5,13 3,15 3,11" stroke="none"/>
+  </g>
+</svg>
