@@ -65,35 +65,31 @@
                             </ul>
                         </div>
                         <div class="col-md-6">
-                            <h6 class="text-primary">特色功能</h6>
+                            <h6 class="text-primary">使用注意事項</h6>
                             <ul class="list-unstyled">
                                 <li class="mb-2">
-                                    <i class="fas fa-lock fa-fw me-2 text-muted"></i>
-                                    <strong>多人編輯保護</strong>: 防止多人同時修改配置造成衝突
+                                    <i class="fas fa-exclamation-triangle fa-fw me-2 text-warning"></i>
+                                    <strong>修改前請謹慎</strong>: 配置錯誤可能影響同步功能
                                 </li>
                                 <li class="mb-2">
-                                    <i class="fas fa-comment-alt fa-fw me-2 text-muted"></i>
-                                    <strong>保留註解格式</strong>: 編輯配置時保留原有註解和格式
+                                    <i class="fas fa-save fa-fw me-2 text-muted"></i>
+                                    <strong>自動備份</strong>: 每次保存前會自動備份到 config_backup/ 目錄
                                 </li>
                                 <li class="mb-2">
-                                    <i class="fas fa-sync-alt fa-fw me-2 text-muted"></i>
-                                    <strong>實時更新</strong>: 配置修改後即時生效
+                                    <i class="fas fa-users fa-fw me-2 text-muted"></i>
+                                    <strong>多人編輯</strong>: 系統有防衝突機制，但建議協調使用
                                 </li>
                                 <li class="mb-2">
-                                    <i class="fas fa-search fa-fw me-2 text-muted"></i>
-                                    <strong>智能檢測</strong>: 自動檢測重複記錄和異常狀況
-                                </li>
-                                <li class="mb-2">
-                                    <i class="fas fa-shield-alt fa-fw me-2 text-muted"></i>
-                                    <strong>安全可靠</strong>: 操作前備份，支援回滾
+                                    <i class="fas fa-clock fa-fw me-2 text-muted"></i>
+                                    <strong>即時生效</strong>: 配置修改後立即生效，無需重啟
                                 </li>
                             </ul>
                         </div>
                     </div>
                     <hr>
-                    <div class="alert alert-info" role="alert">
-                        <i class="fas fa-lightbulb me-2"></i>
-                        <strong>提示:</strong> 修改配置前請先備份，重要操作會自動記錄到日誌中。
+                    <div class="alert alert-warning" role="alert">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        <strong>重要提醒:</strong> 修改配置前請確認設定正確，錯誤的配置可能導致同步失敗。系統會自動備份原始檔案到 config_backup/ 目錄。
                     </div>
                 </div>
                 <div class="modal-footer">

@@ -67,6 +67,7 @@ debug*
 # Archive and backup files
 archive/
 backup/
+config_backup/
 *.backup
 *.bak
 *.old

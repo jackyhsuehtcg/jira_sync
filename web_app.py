@@ -6,6 +6,7 @@ JIRA-Lark 同步系統 Web 介面
 """
 
 import os
+import shutil
 import threading
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
@@ -32,10 +33,14 @@ class YAMLHandler:
     
     def __init__(self, config_path: str):
         self.config_path = config_path
+        self.backup_dir = 'config_backup'
         self.yaml = YAML()
         self.yaml.preserve_quotes = True
         self.yaml.width = 4096
         self.yaml.indent(mapping=2, sequence=4, offset=2)
+        
+        # 確保備份目錄存在
+        os.makedirs(self.backup_dir, exist_ok=True)
     
     def load_config(self):
         """載入配置檔案，保留註解和格式"""
@@ -47,11 +52,39 @@ class YAMLHandler:
                 logger.logger.error(f"載入配置檔案失敗: {e}")
             return None
     
+    def backup_config(self):
+        """創建配置檔案備份"""
+        try:
+            if not os.path.exists(self.config_path):
+                return None
+            
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_filename = f'config_{timestamp}.yaml'
+            backup_path = os.path.join(self.backup_dir, backup_filename)
+            
+            shutil.copy2(self.config_path, backup_path)
+            
+            if logger:
+                logger.logger.info(f"配置檔案已備份至: {backup_path}")
+            
+            return backup_path
+        except Exception as e:
+            if logger:
+                logger.logger.error(f"備份配置檔案失敗: {e}")
+            return None
+    
     def save_config(self, config_data):
         """保存配置檔案，保留註解和格式"""
         try:
+            # 保存前先備份
+            backup_path = self.backup_config()
+            
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 self.yaml.dump(config_data, f)
+            
+            if logger and backup_path:
+                logger.logger.info(f"配置檔案已更新，備份位置: {backup_path}")
+            
             return True
         except Exception as e:
             if logger:
@@ -211,6 +244,7 @@ if __name__ == '__main__':
     os.makedirs('static', exist_ok=True)
     os.makedirs('templates', exist_ok=True)
     os.makedirs('data', exist_ok=True)
+    os.makedirs('config_backup', exist_ok=True)
     
     logger.logger.info("🚀 JIRA-Lark 同步系統 Web 介面啟動中...")
     logger.logger.info("🎨 Gmail 風格的雙欄式佈局")
