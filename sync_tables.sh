@@ -91,8 +91,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# 解析團隊和表格配置
-for team in management aid_trm wsd; do
+# 動態解析所有團隊和表格配置
+# 從配置中取得所有團隊名稱
+teams=$(python3 -c "
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_FILE', 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    teams = config.get('teams', {})
+    for team_name in teams.keys():
+        print(team_name)
+        
+except Exception as e:
+    print(f'# Error parsing teams: {e}', file=sys.stderr)
+    sys.exit(1)
+")
+
+# 處理每個團隊
+for team in $teams; do
     team_enabled_var="CONFIG_teams_${team}_enabled"
     team_interval_var="CONFIG_teams_${team}_sync_interval"
     
@@ -100,18 +119,23 @@ for team in management aid_trm wsd; do
         team_interval=${!team_interval_var:-$DEFAULT_INTERVAL}
         log "團隊 $team 已啟用，間隔: $team_interval 秒"
         
-        # 檢查該團隊的表格
-        case $team in
-            "management")
-                tables="tp_table tcg_table icr_table"
-                ;;
-            "aid_trm")
-                tables="aid_table trm_table"
-                ;;
-            "wsd")
-                tables="wsd_table"
-                ;;
-        esac
+        # 動態取得該團隊的所有表格
+        tables=$(python3 -c "
+import yaml
+import sys
+
+try:
+    with open('$CONFIG_FILE', 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    team_config = config.get('teams', {}).get('$team', {})
+    tables = team_config.get('tables', {})
+    for table_name in tables.keys():
+        print(table_name)
+        
+except Exception as e:
+    print(f'# Error parsing tables for team $team: {e}', file=sys.stderr)
+")
         
         for table in $tables; do
             table_enabled_var="CONFIG_teams_${team}_tables_${table}_enabled"
@@ -137,6 +161,62 @@ while IFS='|' read -r key value; do
     log "表格 $key 將立即開始第一次同步"
 done < "$TABLES_FILE"
 
+# 父子關係更新函數
+update_parent_child_relationships() {
+    local team=$1
+    local table=$2
+    local key="${team}.${table}"
+    
+    # 從配置中組合 Lark 表格 URL
+    local wiki_token_var="CONFIG_teams_${team}_wiki_token"
+    local table_id_var="CONFIG_teams_${team}_tables_${table}_table_id"
+    
+    local wiki_token="${!wiki_token_var}"
+    local table_id="${!table_id_var}"
+    
+    if [ -z "$wiki_token" ] || [ -z "$table_id" ]; then
+        log "⚠️  無法取得表格 $key 的 wiki_token 或 table_id，跳過父子關係更新"
+        return 1
+    fi
+    
+    # 組合 Lark 表格 URL
+    local lark_url="https://igxy0zaeo1r.sg.larksuite.com/wiki/${wiki_token}?table=${table_id}"
+    
+    log "🔗 開始更新表格 $key 的父子關係"
+    log "📍 表格 URL: $lark_url"
+    
+    # 執行父子關係更新程式
+    local parent_updater="${SCRIPT_DIR}/study_tools/parent_child_relationship_updater.py"
+    
+    if [ ! -f "$parent_updater" ]; then
+        log "❌ 找不到父子關係更新程式: $parent_updater"
+        return 1
+    fi
+    
+    # 嘗試兩種可能的父子關係欄位名稱
+    local parent_fields=("父記錄" "Parent Tickets")
+    local success=false
+    
+    for parent_field in "${parent_fields[@]}"; do
+        log "🔗 嘗試使用欄位: $parent_field"
+        
+        if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
+            log "✅ 表格 $key 父子關係更新成功 (使用欄位: $parent_field)"
+            success=true
+            break
+        else
+            log "⚠️  使用欄位 $parent_field 更新失敗，嘗試下一個..."
+        fi
+    done
+    
+    if [ "$success" = true ]; then
+        return 0
+    else
+        log "❌ 表格 $key 父子關係更新失敗 (已嘗試所有可能的欄位名稱)"
+        return 1
+    fi
+}
+
 # 同步單一表格的函數
 sync_table() {
     local team=$1
@@ -149,6 +229,13 @@ sync_table() {
     cd "$SCRIPT_DIR"
     if python3 "$PYTHON_SCRIPT" sync --team "$team" --table "$table"; then
         log "✅ 表格 $key 同步成功"
+        
+        # 如果是 management 的 TCG 表，則額外執行父子關係更新
+        if [ "$team" = "management" ] && [ "$table" = "tcg_table" ]; then
+            log "🔍 檢測到 management.tcg_table，執行父子關係更新..."
+            update_parent_child_relationships "$team" "$table"
+        fi
+        
         return 0
     else
         log "❌ 表格 $key 同步失敗"
