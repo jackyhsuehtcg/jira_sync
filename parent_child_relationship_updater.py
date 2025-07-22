@@ -77,8 +77,25 @@ class ParentChildRelationshipUpdater:
         if not config_path:
             config_path = project_root / "config.yaml"
         
+        print(f"🔍 嘗試載入配置檔案: {config_path}")
+        print(f"📍 專案根目錄: {project_root}")
+        print(f"📍 當前工作目錄: {Path.cwd()}")
+        
+        # 檢查檔案是否存在
+        if not Path(config_path).exists():
+            print(f"✗ 配置檔案不存在: {config_path}")
+            # 嘗試在當前目錄尋找
+            current_config = Path.cwd() / "config.yaml"
+            if current_config.exists():
+                print(f"✓ 在當前目錄找到配置檔案: {current_config}")
+                config_path = current_config
+            else:
+                print(f"✗ 當前目錄也沒有配置檔案: {current_config}")
+                sys.exit(1)
+        
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
+                print(f"✓ 成功載入配置檔案: {config_path}")
                 return yaml.safe_load(f)
         except Exception as e:
             print(f"✗ 載入配置檔案失敗: {e}")

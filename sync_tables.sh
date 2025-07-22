@@ -59,7 +59,7 @@ try:
     flat_config = flatten_dict(config)
     for key, value in flat_config.items():
         # 轉義特殊字符
-        safe_value = value.replace('\\\"', '\\\\\\\"').replace('\\$', '\\\\\\$')
+        safe_value = value.replace('\\\"', '\\\\\\\"').replace('\\\\$', '\\\\\\\\$')
         print(f'${prefix}{key}=\\\"{safe_value}\\\"')
         
 except Exception as e:
