@@ -186,7 +186,7 @@ update_parent_child_relationships() {
     log "📍 表格 URL: $lark_url"
     
     # 執行父子關係更新程式
-    local parent_updater="${SCRIPT_DIR}/study_tools/parent_child_relationship_updater.py"
+    local parent_updater="${SCRIPT_DIR}/parent_child_relationship_updater.py"
     
     if [ ! -f "$parent_updater" ]; then
         log "❌ 找不到父子關係更新程式: $parent_updater"

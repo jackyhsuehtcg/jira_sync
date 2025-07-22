@@ -364,11 +364,11 @@ class ParentChildRelationshipUpdater:
         return ticket_to_record, record_to_ticket_data
     
     def get_jira_parent_relationships(self, ticket_numbers: List[str]) -> Dict[str, str]:
-        """從 JIRA 批次獲取票據的父子關係 (每批50筆)"""
+        """從 JIRA 批次獲取票據的父子關係 (每批200筆)"""
         print(f"\n--- 步驟 2: 從 JIRA 批次獲取 {len(ticket_numbers)} 個票據的父子關係 ---")
         
         parent_relationships = {}
-        batch_size = 50
+        batch_size = 200
         total_batches = (len(ticket_numbers) + batch_size - 1) // batch_size
         
         try:
@@ -721,14 +721,9 @@ def main():
         execute=args.execute
     )
     
-    # 保存結果
-    output_file = args.output
-    if not output_file:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        mode = "preview" if args.preview else ("dry_run" if args.dry_run else "execute")
-        output_file = f"study_tools/parent_child_update_{mode}_{timestamp}.json"
-    
-    updater.save_result(result, output_file)
+    # 僅在指定 output 參數時保存結果檔案
+    if args.output:
+        updater.save_result(result, args.output)
     
     # 顯示結果
     if result["success"]:
@@ -738,7 +733,9 @@ def main():
             print(f"\n🧪 模擬執行完成！")
         else:
             print(f"\n🎉 更新執行完成！")
-        print(f"詳細結果已保存到: {output_file}")
+        
+        if args.output:
+            print(f"詳細結果已保存到: {args.output}")
     else:
         print(f"\n❌ 執行失敗: {result.get('error', '未知錯誤')}")
         sys.exit(1)
