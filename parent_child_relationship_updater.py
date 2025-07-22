@@ -36,7 +36,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 # 添加專案根目錄到 Python 路徑
-project_root = Path(__file__).parent.parent
+project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from jira_client import JiraClient
