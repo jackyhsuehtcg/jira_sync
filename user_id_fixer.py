@@ -39,8 +39,6 @@ class UserIdFixer:
                 WHERE username IS NOT NULL AND username != ''
                   AND lark_email IS NOT NULL AND lark_email != ''
                   AND (lark_user_id IS NULL OR lark_user_id = '')
-                  AND (is_empty IS NULL OR is_empty = 0) 
-                  AND (is_pending IS NULL OR is_pending = 0)
                 ORDER BY username
             """)
             
@@ -56,8 +54,6 @@ class UserIdFixer:
                 FROM user_mappings 
                 WHERE username IS NOT NULL AND username != ''
                   AND lark_email IS NOT NULL AND lark_email != ''
-                  AND (is_empty IS NULL OR is_empty = 0) 
-                  AND (is_pending IS NULL OR is_pending = 0)
                 ORDER BY username
             """)
             
@@ -119,6 +115,7 @@ class UserIdFixer:
                         UPDATE user_mappings 
                         SET lark_user_id = ?, 
                             lark_name = ?,
+                            is_pending = 0,
                             updated_at = ?
                         WHERE username = ?
                     """, (user_id, name, datetime.now().isoformat(), username))
@@ -126,6 +123,7 @@ class UserIdFixer:
                     cursor.execute("""
                         UPDATE user_mappings 
                         SET lark_user_id = ?, 
+                            is_pending = 0,
                             updated_at = ?
                         WHERE username = ?
                     """, (user_id, datetime.now().isoformat(), username))
