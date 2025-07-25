@@ -85,6 +85,9 @@ field_mappings:
   "customfield_11604":
     lark_field: "QA Start Date"
     processor: "convert_datetime"
+  "customfield_11605":
+    lark_field: "Resolved By"
+    processor: "extract_user"
   customfield_test_comments:
     lark_field: Test Comments Field
     processor: extract_simple
