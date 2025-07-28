@@ -88,6 +88,9 @@ field_mappings:
   "customfield_11605":
     lark_field: "Resolved By"
     processor: "extract_user"
+  "customfield_11606":
+    lark_field: "Resolved Date"
+    processor: "convert_datetime"
   customfield_test_comments:
     lark_field: Test Comments Field
     processor: extract_simple
