@@ -386,6 +386,7 @@ def api_create_user_mapping():
         user_id = data.get('user_id', '').strip()
         original_user_id = data.get('original_user_id', '').strip()
         name = data.get('name', '').strip()
+        email = data.get('email', '').strip()
         
         # 使用原始 User ID 進行操作，如果沒有則使用傳入的 user_id
         actual_user_id = original_user_id if original_user_id else user_id
@@ -394,7 +395,7 @@ def api_create_user_mapping():
             return jsonify({'error': '用戶名和用戶 ID 不能為空'}), 400
         
         # 創建用戶對應（實際執行，非 dry_run）
-        success = user_fixer.update_user_id(username, actual_user_id, name, dry_run=False)
+        success = user_fixer.update_user_id(username, actual_user_id, name, email, dry_run=False)
         
         if success:
             masked_id = mask_user_id(actual_user_id)

@@ -87,7 +87,7 @@ class UserIdFixer:
             print(f"    ❌ 查詢 {email} 時發生錯誤: {e}")
             return None
     
-    def update_user_id(self, username: str, user_id: str, name: str = None, dry_run: bool = True) -> bool:
+    def update_user_id(self, username: str, user_id: str, name: str = None, email: str = None, dry_run: bool = True) -> bool:
         """
         更新用戶的 lark_user_id
         
@@ -95,6 +95,7 @@ class UserIdFixer:
             username: 用戶名
             user_id: Lark 用戶 ID
             name: Lark 用戶名稱
+            email: Lark 用戶 Email
             dry_run: 是否只是模擬運行
             
         Returns:
@@ -104,29 +105,35 @@ class UserIdFixer:
             print(f"    [DRY RUN] 將更新 {username} 的 user_id: {user_id}")
             if name:
                 print(f"    [DRY RUN] 同時更新名稱: {name}")
+            if email:
+                print(f"    [DRY RUN] 同時更新 Email: {email}")
             return True
         
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
+                # 構建動態更新語句
+                update_fields = ["lark_user_id = ?", "is_pending = 0", "updated_at = ?"]
+                update_values = [user_id, datetime.now().isoformat()]
+                
                 if name:
-                    cursor.execute("""
-                        UPDATE user_mappings 
-                        SET lark_user_id = ?, 
-                            lark_name = ?,
-                            is_pending = 0,
-                            updated_at = ?
-                        WHERE username = ?
-                    """, (user_id, name, datetime.now().isoformat(), username))
-                else:
-                    cursor.execute("""
-                        UPDATE user_mappings 
-                        SET lark_user_id = ?, 
-                            is_pending = 0,
-                            updated_at = ?
-                        WHERE username = ?
-                    """, (user_id, datetime.now().isoformat(), username))
+                    update_fields.append("lark_name = ?")
+                    update_values.append(name)
+                
+                if email:
+                    update_fields.append("lark_email = ?")
+                    update_values.append(email)
+                
+                update_values.append(username)  # WHERE username = ?
+                
+                sql = f"""
+                    UPDATE user_mappings 
+                    SET {', '.join(update_fields)}
+                    WHERE username = ?
+                """
+                
+                cursor.execute(sql, update_values)
                 
                 if cursor.rowcount > 0:
                     print(f"    ✅ 成功更新 {username} 的 user_id")
@@ -199,7 +206,7 @@ class UserIdFixer:
                     continue
                 
                 # 更新用戶 ID
-                if self.update_user_id(username, new_user_id, lark_info['name'], dry_run):
+                if self.update_user_id(username, new_user_id, lark_info['name'], lark_info['email'], dry_run):
                     if full_update:
                         stats['updated'] += 1
                     else:
