@@ -29,6 +29,11 @@
                         <i class="fas fa-users fa-fw me-2"></i>團隊配置
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('user_management') }}" class="nav-link {% if request.endpoint == 'user_management' %}active{% endif %}">
+                        <i class="fas fa-user-cog fa-fw me-2"></i>人員對應管理
+                    </a>
+                </li>
                 <li class="mt-3">
                     <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#helpModal">
                         <i class="fas fa-question-circle fa-fw me-2"></i>說明
@@ -61,6 +66,10 @@
                                 <li class="mb-2">
                                     <i class="fas fa-users fa-fw me-2 text-muted"></i>
                                     <strong>團隊配置</strong>: 管理各團隊的 JIRA 和 Lark 表格同步設定
+                                </li>
+                                <li class="mb-2">
+                                    <i class="fas fa-user-cog fa-fw me-2 text-muted"></i>
+                                    <strong>人員對應管理</strong>: 管理 JIRA 和 Lark 用戶的對應關係
                                 </li>
                             </ul>
                         </div>

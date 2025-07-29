@@ -16,6 +16,22 @@ from ruamel.yaml.comments import CommentedMap
 # 導入現有系統模組
 from config_manager import ConfigManager
 from logger import setup_logging
+from user_id_fixer import UserIdFixer
+from lark_client import LarkClient
+
+
+def mask_user_id(user_id):
+    """遮蔽 User ID 的中間15位字符以保護隱私"""
+    if not user_id or len(user_id) < 20:
+        return user_id
+    
+    # 格式: ou_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx (35字符總長度)
+    # 顯示: ou_xxxxx***************xxxxx (前10碼 + 15個* + 後10碼)
+    prefix = user_id[:10]
+    suffix = user_id[-10:]
+    masked = prefix + '***************' + suffix
+    
+    return masked
 
 app = Flask(__name__)
 
@@ -23,6 +39,8 @@ app = Flask(__name__)
 config_manager = None
 yaml_handler = None
 logger = None
+user_fixer = None
+lark_client = None
 
 # 文件鎖，防止多人同時編輯
 config_lock = threading.Lock()
@@ -114,6 +132,32 @@ def init_app():
     logger.logger.info("Web 應用程式初始化完成")
 
 
+def init_user_management():
+    """初始化用戶管理組件"""
+    global user_fixer, lark_client, config_manager, logger
+    
+    try:
+        if not config_manager:
+            init_app()
+        
+        # 獲取 Lark 配置
+        lark_config = config_manager.get_lark_base_config()
+        
+        # 初始化 Lark 客戶端
+        lark_client = LarkClient(lark_config['app_id'], lark_config['app_secret'])
+        
+        # 初始化用戶 ID 修復器
+        user_fixer = UserIdFixer('data/user_mapping_cache.db', lark_client)
+        
+        logger.logger.info("用戶管理組件初始化完成")
+        return True
+        
+    except Exception as e:
+        if logger:
+            logger.logger.error(f"用戶管理組件初始化失敗: {e}")
+        return False
+
+
 @app.route('/')
 def index():
     """首頁 - 重定向到團隊配置"""
@@ -138,10 +182,10 @@ def teams():
     return render_template('teams.html', teams=teams_config, stats=stats)
 
 
-
-
-
-
+@app.route('/user_management')
+def user_management():
+    """人員對應管理頁面"""
+    return render_template('user_management.html')
 
 
 # API 路由
@@ -229,11 +273,145 @@ def api_delete_team(team_name):
         return jsonify({'error': str(e)}), 500
 
 
+# 用戶管理 API 路由
+
+@app.route('/api/users/mapped')
+def api_get_mapped_users():
+    """獲取已對應用戶列表 API"""
+    try:
+        if not init_user_management():
+            return jsonify({'error': '用戶管理組件初始化失敗'}), 500
+        
+        # 獲取所有有 email 的用戶
+        all_users = user_fixer.get_users_with_email()
+        
+        # 過濾出已有 lark_user_id 的用戶並遮蔽 User ID
+        mapped_users = []
+        for user in all_users:
+            if user.get('lark_user_id') and user['lark_user_id'].strip():
+                # 創建用戶副本並遮蔽 User ID
+                masked_user = user.copy()
+                masked_user['lark_user_id'] = mask_user_id(user['lark_user_id'])
+                mapped_users.append(masked_user)
+        
+        return jsonify(mapped_users)
+        
+    except Exception as e:
+        logger.logger.error(f"獲取已對應用戶失敗: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/users/unmapped')
+def api_get_unmapped_users():
+    """獲取未對應用戶列表 API（所有沒有 lark_user_id 的用戶）"""
+    try:
+        if not init_user_management():
+            return jsonify({'error': '用戶管理組件初始化失敗'}), 500
+        
+        # 直接查詢數據庫獲取所有沒有 lark_user_id 的用戶
+        import sqlite3
+        unmapped_users = []
+        
+        with sqlite3.connect('data/user_mapping_cache.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT username, lark_email, lark_name
+                FROM user_mappings 
+                WHERE username IS NOT NULL 
+                  AND (lark_user_id IS NULL OR lark_user_id = '')
+                ORDER BY username
+            """)
+            
+            columns = ['username', 'lark_email', 'lark_name']
+            unmapped_users = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        
+        return jsonify(unmapped_users)
+        
+    except Exception as e:
+        logger.logger.error(f"獲取未對應用戶失敗: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/users/query', methods=['POST'])
+def api_query_user():
+    """查詢 Lark 用戶 API"""
+    try:
+        if not init_user_management():
+            return jsonify({'error': '用戶管理組件初始化失敗'}), 500
+        
+        data = request.get_json()
+        if not data or not data.get('email'):
+            return jsonify({'error': '請提供 email 地址'}), 400
+        
+        email = data['email'].strip()
+        if not email:
+            return jsonify({'error': 'Email 地址不能為空'}), 400
+        
+        # 查詢 Lark 用戶
+        user_info = user_fixer.query_lark_user_by_email(email)
+        
+        if user_info:
+            # 遮蔽返回的 User ID
+            masked_user_info = user_info.copy()
+            masked_user_info['user_id'] = mask_user_id(user_info['user_id'])
+            
+            return jsonify({
+                'success': True,
+                'user_info': masked_user_info,
+                'original_user_id': user_info['user_id']  # 保留原始 ID 供內部使用
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'在 Lark 中找不到 email: {email}'
+            })
+            
+    except Exception as e:
+        logger.logger.error(f"查詢用戶失敗: {e}")
+        return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/users/create', methods=['POST'])
+def api_create_user_mapping():
+    """創建用戶對應 API"""
+    try:
+        if not init_user_management():
+            return jsonify({'error': '用戶管理組件初始化失敗'}), 500
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '請提供用戶數據'}), 400
+        
+        username = data.get('username', '').strip()
+        user_id = data.get('user_id', '').strip()
+        original_user_id = data.get('original_user_id', '').strip()
+        name = data.get('name', '').strip()
+        
+        # 使用原始 User ID 進行操作，如果沒有則使用傳入的 user_id
+        actual_user_id = original_user_id if original_user_id else user_id
+        
+        if not username or not actual_user_id:
+            return jsonify({'error': '用戶名和用戶 ID 不能為空'}), 400
+        
+        # 創建用戶對應（實際執行，非 dry_run）
+        success = user_fixer.update_user_id(username, actual_user_id, name, dry_run=False)
+        
+        if success:
+            masked_id = mask_user_id(actual_user_id)
+            logger.logger.info(f"成功創建用戶對應: {username} -> {masked_id}")
+            return jsonify({
+                'success': True,
+                'message': '用戶對應創建成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '創建用戶對應失敗'
+            }), 500
+            
+    except Exception as e:
+        logger.logger.error(f"創建用戶對應失敗: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

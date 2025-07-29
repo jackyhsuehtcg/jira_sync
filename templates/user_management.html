@@ -1,0 +1,529 @@
+{% extends "base.html" %}
+
+{% block title %}人員對應管理 - JIRA-Lark 同步系統{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 頁面標題 -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-user-cog me-2"></i>人員對應管理</h2>
+        <button class="btn btn-primary" onclick="showCreateModal(true)">
+            <i class="fas fa-plus me-1"></i>完全新增用戶對應
+        </button>
+    </div>
+
+    <!-- 統計卡片 -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card border-success">
+                <div class="card-body text-center">
+                    <i class="fas fa-check-circle fa-2x text-success mb-2"></i>
+                    <h5 class="card-title text-success">已對應用戶</h5>
+                    <h2 class="card-text text-success" id="mappedCount">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </h2>
+                    <small class="text-muted">已建立 Lark 用戶對應</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-warning">
+                <div class="card-body text-center">
+                    <i class="fas fa-exclamation-triangle fa-2x text-warning mb-2"></i>
+                    <h5 class="card-title text-warning">未對應用戶</h5>
+                    <h2 class="card-text text-warning" id="unmappedCount">
+                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                    </h2>
+                    <small class="text-muted">待建立 Lark 用戶對應</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 已對應用戶表格 -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-users me-2"></i>已對應用戶</h5>
+            <button class="btn btn-outline-light btn-sm" onclick="loadMappedUsers()">
+                <i class="fas fa-sync-alt"></i> 重新載入
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="mappedUsersLoading" class="text-center py-3">
+                <div class="spinner-border text-success" role="status">
+                    <span class="visually-hidden">載入中...</span>
+                </div>
+                <div class="mt-2">載入已對應用戶...</div>
+            </div>
+            <div id="mappedUsersContent" style="display: none;">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" id="mappedUsersTable">
+                        <thead class="table-success">
+                            <tr>
+                                <th style="width: 25%;"><i class="fas fa-user me-1"></i>用戶名</th>
+                                <th style="width: 45%;"><i class="fas fa-envelope me-1"></i>Lark Email</th>
+                                <th style="width: 30%;"><i class="fas fa-id-card me-1"></i>Lark User ID</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="mappedUsersEmpty" style="display: none;" class="text-center py-4 text-muted">
+                <i class="fas fa-info-circle fa-3x mb-3"></i>
+                <p class="mb-0">目前沒有已對應的用戶</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 未對應用戶表格 -->
+    <div class="card">
+        <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-user-times me-2"></i>未對應用戶</h5>
+            <button class="btn btn-outline-dark btn-sm" onclick="loadUnmappedUsers()">
+                <i class="fas fa-sync-alt"></i> 重新載入
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="unmappedUsersLoading" class="text-center py-3">
+                <div class="spinner-border text-warning" role="status">
+                    <span class="visually-hidden">載入中...</span>
+                </div>
+                <div class="mt-2">載入未對應用戶...</div>
+            </div>
+            <div id="unmappedUsersContent" style="display: none;">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover" id="unmappedUsersTable">
+                        <thead class="table-warning">
+                            <tr>
+                                <th><i class="fas fa-user me-1"></i>用戶名</th>
+                                <th><i class="fas fa-tools me-1"></i>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="unmappedUsersEmpty" style="display: none;" class="text-center py-4 text-muted">
+                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                <p class="mb-0">所有用戶都已建立對應！</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增用戶對應模態框 -->
+<div class="modal fade" id="createUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-plus-circle me-2"></i>新增用戶對應
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createUserForm">
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-user me-1"></i>JIRA 用戶名
+                        </label>
+                        <input type="text" class="form-control" id="modalUsername" required>
+                        <div class="form-text">用於 JIRA 系統中的用戶標識</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-envelope me-1"></i>Lark Email
+                        </label>
+                        <input type="email" class="form-control" id="modalEmail" required>
+                        <div class="form-text">用於查詢 Lark 用戶的 Email 地址</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>取消
+                </button>
+                <button type="button" class="btn btn-primary" onclick="queryUser()">
+                    <i class="fas fa-search me-1"></i>查詢用戶
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 確認對應模態框 -->
+<div class="modal fade" id="confirmUserModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-check-circle me-2"></i>確認用戶對應
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <h6><i class="fas fa-info-circle me-2"></i>查詢到的 Lark 用戶信息：</h6>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>用戶 ID：</strong>
+                        </div>
+                        <div class="col-md-8">
+                            <code id="confirmUserId"></code>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-4">
+                            <strong>姓名：</strong>
+                        </div>
+                        <div class="col-md-8">
+                            <span id="confirmUserName"></span>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-4">
+                            <strong>Email：</strong>
+                        </div>
+                        <div class="col-md-8">
+                            <span id="confirmUserEmail"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-warning">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>請確認是否要建立以下對應關係：</h6>
+                    <p class="mb-0">
+                        <strong>JIRA 用戶：</strong>
+                        <span class="badge bg-primary" id="confirmJiraUsername"></span>
+                        <i class="fas fa-arrow-right mx-2"></i>
+                        <strong>Lark 用戶：</strong>
+                        <span class="badge bg-success" id="confirmLarkUserName"></span>
+                    </p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>取消
+                </button>
+                <button type="button" class="btn btn-outline-primary" onclick="backToEdit()">
+                    <i class="fas fa-arrow-left me-1"></i>返回編輯
+                </button>
+                <button type="button" class="btn btn-success" onclick="confirmCreateMapping()">
+                    <i class="fas fa-check me-1"></i>確認建立對應
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 提示訊息容器 -->
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="successToast" class="toast align-items-center text-white bg-success border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="fas fa-check-circle me-2"></i>
+                <span id="successMessage"></span>
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+    <div id="errorToast" class="toast align-items-center text-white bg-danger border-0" role="alert">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                <span id="errorMessage"></span>
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+// 全局變量
+let pendingMapping = null;
+
+// 頁面載入時初始化
+document.addEventListener('DOMContentLoaded', function() {
+    loadMappedUsers();
+    loadUnmappedUsers();
+});
+
+// 載入已對應用戶
+async function loadMappedUsers() {
+    const loadingDiv = document.getElementById('mappedUsersLoading');
+    const contentDiv = document.getElementById('mappedUsersContent');
+    const emptyDiv = document.getElementById('mappedUsersEmpty');
+    
+    // 顯示載入狀態
+    loadingDiv.style.display = 'block';
+    contentDiv.style.display = 'none';
+    emptyDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/users/mapped');
+        const users = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('mappedCount').textContent = users.length;
+            
+            if (users.length > 0) {
+                const tbody = document.querySelector('#mappedUsersTable tbody');
+                tbody.innerHTML = users.map(user => `
+                    <tr>
+                        <td>
+                            <i class="fas fa-user text-muted me-2"></i>
+                            <strong>${escapeHtml(user.username)}</strong>
+                        </td>
+                        <td>
+                            <i class="fas fa-envelope text-muted me-2"></i>
+                            ${escapeHtml(user.lark_email)}
+                        </td>
+                        <td>
+                            <code style="font-size: 0.9em; line-height: 1.2;">
+                                ${escapeHtml(user.lark_user_id)}
+                            </code>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                contentDiv.style.display = 'block';
+            } else {
+                emptyDiv.style.display = 'block';
+            }
+        } else {
+            showError('載入已對應用戶失敗: ' + (users.error || '未知錯誤'));
+        }
+    } catch (error) {
+        showError('載入已對應用戶時發生網路錯誤: ' + error.message);
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
+// 載入未對應用戶
+async function loadUnmappedUsers() {
+    const loadingDiv = document.getElementById('unmappedUsersLoading');
+    const contentDiv = document.getElementById('unmappedUsersContent');
+    const emptyDiv = document.getElementById('unmappedUsersEmpty');
+    
+    // 顯示載入狀態
+    loadingDiv.style.display = 'block';
+    contentDiv.style.display = 'none';
+    emptyDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/users/unmapped');
+        const users = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('unmappedCount').textContent = users.length;
+            
+            if (users.length > 0) {
+                const tbody = document.querySelector('#unmappedUsersTable tbody');
+                tbody.innerHTML = users.map(user => `
+                    <tr>
+                        <td>
+                            <i class="fas fa-user text-muted me-2"></i>
+                            <strong>${escapeHtml(user.username)}</strong>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="showCreateModal(false, '${escapeHtml(user.username)}')">
+                                <i class="fas fa-plus me-1"></i>新增對應
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                
+                contentDiv.style.display = 'block';
+            } else {
+                emptyDiv.style.display = 'block';
+            }
+        } else {
+            showError('載入未對應用戶失敗: ' + (users.error || '未知錯誤'));
+        }
+    } catch (error) {
+        showError('載入未對應用戶時發生網路錯誤: ' + error.message);
+    } finally {
+        loadingDiv.style.display = 'none';
+    }
+}
+
+// 顯示創建用戶模態框
+function showCreateModal(isFullMode, username = '') {
+    document.getElementById('modalUsername').value = username;
+    document.getElementById('modalUsername').readOnly = !isFullMode;
+    document.getElementById('modalEmail').value = '';
+    
+    // 更新模態框標題
+    const title = isFullMode ? '完全新增用戶對應' : `為 ${username} 新增對應`;
+    document.querySelector('#createUserModal .modal-title').innerHTML = 
+        `<i class="fas fa-plus-circle me-2"></i>${title}`;
+    
+    const modal = new bootstrap.Modal(document.getElementById('createUserModal'));
+    modal.show();
+}
+
+// 查詢用戶
+async function queryUser() {
+    const username = document.getElementById('modalUsername').value.trim();
+    const email = document.getElementById('modalEmail').value.trim();
+    
+    if (!username || !email) {
+        showError('請填寫完整信息');
+        return;
+    }
+    
+    // 簡單的 email 格式驗證
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        showError('請輸入有效的 Email 地址');
+        return;
+    }
+    
+    // 顯示載入狀態
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>查詢中...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/users/query', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email: email})
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success && result.user_info) {
+            // 顯示確認模態框（顯示遮蔽的 User ID）
+            document.getElementById('confirmUserId').textContent = result.user_info.user_id;
+            document.getElementById('confirmUserName').textContent = result.user_info.name;
+            document.getElementById('confirmUserEmail').textContent = result.user_info.email;
+            document.getElementById('confirmJiraUsername').textContent = username;
+            document.getElementById('confirmLarkUserName').textContent = result.user_info.name;
+            
+            // 隱藏創建模態框，顯示確認模態框
+            bootstrap.Modal.getInstance(document.getElementById('createUserModal')).hide();
+            
+            const confirmModal = new bootstrap.Modal(document.getElementById('confirmUserModal'));
+            confirmModal.show();
+            
+            // 暫存數據供確認使用（包含原始 User ID）
+            pendingMapping = {
+                username: username,
+                email: email,
+                user_id: result.user_info.user_id, // 遮蔽版本
+                original_user_id: result.original_user_id, // 原始版本
+                name: result.user_info.name
+            };
+        } else {
+            const message = result.message || result.error || '在 Lark 中找不到該 email 對應的用戶';
+            showError(message);
+        }
+    } catch (error) {
+        showError('查詢用戶時發生錯誤: ' + error.message);
+    } finally {
+        // 恢復按鈕狀態
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+// 返回編輯
+function backToEdit() {
+    bootstrap.Modal.getInstance(document.getElementById('confirmUserModal')).hide();
+    
+    setTimeout(() => {
+        const modal = new bootstrap.Modal(document.getElementById('createUserModal'));
+        modal.show();
+    }, 300);
+}
+
+// 確認創建對應
+async function confirmCreateMapping() {
+    if (!pendingMapping) {
+        showError('無效的對應數據');
+        return;
+    }
+    
+    // 顯示載入狀態
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>創建中...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/users/create', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(pendingMapping)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showSuccess('用戶對應創建成功！');
+            
+            // 關閉模態框
+            bootstrap.Modal.getInstance(document.getElementById('confirmUserModal')).hide();
+            
+            // 重新載入數據
+            setTimeout(() => {
+                loadMappedUsers();
+                loadUnmappedUsers();
+            }, 500);
+            
+            // 清空暫存數據
+            pendingMapping = null;
+        } else {
+            const message = result.error || '創建用戶對應失敗';
+            showError(message);
+        }
+    } catch (error) {
+        showError('創建用戶對應時發生錯誤: ' + error.message);
+    } finally {
+        // 恢復按鈕狀態
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+// 顯示成功訊息
+function showSuccess(message) {
+    document.getElementById('successMessage').textContent = message;
+    const toast = new bootstrap.Toast(document.getElementById('successToast'));
+    toast.show();
+}
+
+// 顯示錯誤訊息
+function showError(message) {
+    document.getElementById('errorMessage').textContent = message;
+    const toast = new bootstrap.Toast(document.getElementById('errorToast'));
+    toast.show();
+}
+
+// HTML 轉義函數
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+
+// Enter 鍵提交支援
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('modalEmail').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            queryUser();
+        }
+    });
+    
+    document.getElementById('modalUsername').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            document.getElementById('modalEmail').focus();
+        }
+    });
+});
+</script>
+{% endblock %}
