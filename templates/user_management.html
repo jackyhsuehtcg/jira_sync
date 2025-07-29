@@ -92,16 +92,8 @@
                 <div class="mt-2">載入未對應用戶...</div>
             </div>
             <div id="unmappedUsersContent" style="display: none;">
-                <div class="table-responsive">
-                    <table class="table table-striped table-hover" id="unmappedUsersTable">
-                        <thead class="table-warning">
-                            <tr>
-                                <th><i class="fas fa-user me-1"></i>用戶名</th>
-                                <th><i class="fas fa-tools me-1"></i>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+                <div class="row g-3" id="unmappedUsersContainer">
+                    <!-- 未對應用戶將以每列兩個的方式顯示 -->
                 </div>
             </div>
             <div id="unmappedUsersEmpty" style="display: none;" class="text-center py-4 text-muted">
@@ -319,19 +311,24 @@ async function loadUnmappedUsers() {
             document.getElementById('unmappedCount').textContent = users.length;
             
             if (users.length > 0) {
-                const tbody = document.querySelector('#unmappedUsersTable tbody');
-                tbody.innerHTML = users.map(user => `
-                    <tr>
-                        <td>
-                            <i class="fas fa-user text-muted me-2"></i>
-                            <strong>${escapeHtml(user.username)}</strong>
-                        </td>
-                        <td>
-                            <button class="btn btn-sm btn-primary" onclick="showCreateModal(false, '${escapeHtml(user.username)}')">
-                                <i class="fas fa-plus me-1"></i>新增對應
-                            </button>
-                        </td>
-                    </tr>
+                const container = document.getElementById('unmappedUsersContainer');
+                container.innerHTML = users.map(user => `
+                    <div class="col-md-4">
+                        <div class="card border-warning">
+                            <div class="card-body py-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <i class="fas fa-user text-warning me-2"></i>
+                                        <strong>${escapeHtml(user.username)}</strong>
+                                        ${user.lark_email ? `<br><small class="text-muted">${escapeHtml(user.lark_email)}</small>` : ''}
+                                    </div>
+                                    <button class="btn btn-sm btn-primary" onclick="showCreateModal(false, '${escapeHtml(user.username)}')">
+                                        <i class="fas fa-plus me-1"></i>新增對應
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 `).join('');
                 
                 contentDiv.style.display = 'block';
