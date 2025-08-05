@@ -113,33 +113,34 @@ class UserIdFixer:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # 構建動態更新語句
-                update_fields = ["lark_user_id = ?", "is_pending = 0", "updated_at = ?"]
-                update_values = [user_id, datetime.now().isoformat()]
+                # 使用 REPLACE INTO 實現 UPSERT 操作
+                # 準備所有字段和值
+                fields = ["username", "lark_user_id", "is_pending", "updated_at"]
+                values = [username, user_id, 0, datetime.now().isoformat()]
                 
+                # 添加可選字段
                 if name:
-                    update_fields.append("lark_name = ?")
-                    update_values.append(name)
+                    fields.append("lark_name")
+                    values.append(name)
                 
                 if email:
-                    update_fields.append("lark_email = ?")
-                    update_values.append(email)
+                    fields.append("lark_email")
+                    values.append(email)
                 
-                update_values.append(username)  # WHERE username = ?
-                
+                # 使用 REPLACE INTO 執行 UPSERT
+                placeholders = ", ".join(["?"] * len(fields))
                 sql = f"""
-                    UPDATE user_mappings 
-                    SET {', '.join(update_fields)}
-                    WHERE username = ?
+                    REPLACE INTO user_mappings ({', '.join(fields)})
+                    VALUES ({placeholders})
                 """
                 
-                cursor.execute(sql, update_values)
+                cursor.execute(sql, values)
                 
                 if cursor.rowcount > 0:
-                    print(f"    ✅ 成功更新 {username} 的 user_id")
+                    print(f"    ✅ 成功創建/更新 {username} 的用戶對應")
                     return True
                 else:
-                    print(f"    ❌ 更新 {username} 失敗：未找到記錄")
+                    print(f"    ❌ 創建/更新 {username} 失敗")
                     return False
                     
         except Exception as e:
