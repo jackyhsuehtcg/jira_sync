@@ -92,7 +92,7 @@ field_mappings:
     lark_field: "Resolved Date"
     processor: "convert_datetime"
   "customfield_11700":
-    lark_field: "TYPE"
+    lark_field: "Project Type"
     processor: "extract_nested"
     nested_path: "value"
   customfield_test_comments:
