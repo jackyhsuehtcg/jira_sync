@@ -425,51 +425,6 @@ class ParentChildRelationshipUpdater:
             print(f"✗ 批次獲取 JIRA 資料失敗: {e}")
             return {}
 
-    def get_parent_sprints_from_lark(self, obj_token: str, table_id: str, 
-                                   parent_record_ids: List[str], sprints_field: str,
-                                   ticket_field_name: str) -> Dict[str, Any]:
-        """從 Lark 表格獲取父記錄的 Sprints 欄位值（數字格式）"""
-        print(f"  從 Lark 表格獲取 {len(parent_record_ids)} 個父記錄的 Sprints 資訊")
-        
-        parent_sprints = {}
-        
-        try:
-            # 獲取所有父記錄的資料
-            all_records = self.lark_client.get_records(obj_token, table_id)
-            
-            # 建立記錄 ID 對應的資料字典
-            record_data_map = {}
-            for record in all_records:
-                record_id = record.get("record_id")
-                fields = record.get("fields", {})
-                ticket_number = fields.get(ticket_field_name)
-                sprints_value = fields.get(sprints_field)
-                
-                if record_id and ticket_number:
-                    record_data_map[record_id] = {
-                        'ticket_number': ticket_number,
-                        'sprints_value': sprints_value
-                    }
-            
-            # 為每個父記錄 ID 提取 Sprints 值
-            for parent_record_id in parent_record_ids:
-                if parent_record_id in record_data_map:
-                    record_data = record_data_map[parent_record_id]
-                    sprints_value = record_data['sprints_value']
-                    ticket_number = record_data['ticket_number']
-                    
-                    parent_sprints[parent_record_id] = sprints_value
-                    print(f"      ✓ 記錄 {parent_record_id} ({ticket_number}): Sprints = {sprints_value}")
-                else:
-                    print(f"      ⚠️  未找到父記錄 ID: {parent_record_id}")
-            
-            sprints_count = len([k for k, v in parent_sprints.items() if v is not None])
-            print(f"  ✓ 成功獲取 {sprints_count} 個父記錄的 Sprints 資訊")
-            return parent_sprints
-            
-        except Exception as e:
-            print(f"  ✗ 從 Lark 獲取父記錄 Sprints 失敗: {e}")
-            return {}
 
     
     def filter_valid_relationships(self, parent_relationships: Dict[str, Dict[str, Any]], 
@@ -491,12 +446,25 @@ class ParentChildRelationshipUpdater:
                 if parent_record_id not in parent_record_ids:
                     parent_record_ids.append(parent_record_id)
         
-        # 從 Lark 表格獲取父記錄的 Sprints 資訊
+        # 從已有的記錄資料中獲取父記錄的 Sprints 資訊
         parent_sprints_data = {}
-        if parent_record_ids:
-            parent_sprints_data = self.get_parent_sprints_from_lark(
-                obj_token, table_id, parent_record_ids, sprints_field, ticket_field_name
-            )
+        if sprints_field:
+            # 獲取所有記錄來查找父記錄的 Sprints
+            try:
+                all_records = self.lark_client.get_records(obj_token, table_id)
+                for record in all_records:
+                    record_id = record.get("record_id")
+                    fields = record.get("fields", {})
+                    sprints_value = fields.get(sprints_field)
+                    ticket_number = fields.get(ticket_field_name)
+                    
+                    if record_id in parent_record_ids and sprints_value is not None:
+                        parent_sprints_data[record_id] = sprints_value
+                        print(f"      ✓ 父記錄 {record_id} ({ticket_number}): Sprints = {sprints_value}")
+                
+                print(f"  ✓ 找到 {len(parent_sprints_data)} 個父記錄有 Sprints 資訊")
+            except Exception as e:
+                print(f"  ✗ 獲取父記錄 Sprints 失敗: {e}")
         
         # 處理每個子票據的關係
         for child_ticket, relationship_info in parent_relationships.items():
