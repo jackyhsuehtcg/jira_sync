@@ -221,12 +221,10 @@ sync_table() {
     if python3 "$PYTHON_SCRIPT" sync --team "$team" --table "$table"; then
         log "✅ 表格 $key 同步成功"
         
-        # 嘗試執行父子關係更新（如果表格支援的話）
-        log "🔍 嘗試執行表格 $key 的父子關係更新..."
-        if update_parent_child_relationships "$team" "$table"; then
-            log "✅ 表格 $key 父子關係更新成功"
-        else
-            log "ℹ️  表格 $key 不支援父子關係更新或更新失敗，跳過"
+        # 只有 management 的 tcg_table 才執行父子關係更新
+        if [ "$team" = "management" ] && [ "$table" = "tcg_table" ]; then
+            log "🔍 檢測到 management.tcg_table，執行父子關係更新..."
+            update_parent_child_relationships "$team" "$table"
         fi
         
         return 0
