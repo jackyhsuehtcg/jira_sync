@@ -451,7 +451,7 @@ class ParentChildRelationshipUpdater:
         if sprints_field:
             # 獲取所有記錄來查找父記錄的 Sprints
             try:
-                all_records = self.lark_client.get_records(obj_token, table_id)
+                all_records = self.get_all_lark_records(obj_token, table_id, [ticket_field_name, sprints_field])
                 for record in all_records:
                     record_id = record.get("record_id")
                     fields = record.get("fields", {})

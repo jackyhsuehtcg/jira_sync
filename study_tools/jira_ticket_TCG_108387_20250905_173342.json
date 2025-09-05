@@ -1,0 +1,10 @@
+{
+  "timestamp": "2025-09-05T17:33:42.030734",
+  "ticket_count": 1,
+  "ticket": {
+    "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+    "id": "517654",
+    "self": "https://jira.tc-gaming.co/jira/rest/api/2/issue/517654",
+    "key": "TCG-108387"
+  }
+}
