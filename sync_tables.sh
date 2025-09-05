@@ -193,42 +193,25 @@ update_parent_child_relationships() {
         return 1
     fi
     
-    # 定義可能的欄位名稱組合
+    # 直接同步父單 Sprints 到子單，不做複雜判斷
     local parent_fields=("父記錄" "Parent Tickets")
     local sprints_fields=("Sprints" "Sprint" "衝刺")
     local success=false
     
-    # 嘗試不同的欄位組合
+    # 嘗試不同的欄位組合，找到就直接執行
     for parent_field in "${parent_fields[@]}"; do
         for sprints_field in "${sprints_fields[@]}"; do
             log "🔗 嘗試使用欄位組合: 父子關係='$parent_field', Sprints='$sprints_field'"
             
             if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --sprints-field "$sprints_field" --execute; then
-                log "✅ 表格 $key 父子關係和 Sprints 更新成功 (父子關係: $parent_field, Sprints: $sprints_field)"
+                log "✅ 表格 $key 父子關係和 Sprints 同步完成 (父子關係: $parent_field, Sprints: $sprints_field)"
                 success=true
                 break 2
             else
-                log "⚠️  使用欄位組合 '$parent_field' + '$sprints_field' 失敗，嘗試下一個..."
+                log "⚠️  欄位組合 '$parent_field' + '$sprints_field' 不適用，繼續嘗試..."
             fi
         done
     done
-    
-    # 如果 Sprints 欄位都失敗，嘗試只更新父子關係
-    if [ "$success" = false ]; then
-        log "🔄 Sprints 欄位同步失敗，嘗試只更新父子關係..."
-        
-        for parent_field in "${parent_fields[@]}"; do
-            log "🔗 嘗試使用父子關係欄位: $parent_field"
-            
-            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
-                log "✅ 表格 $key 父子關係更新成功 (使用欄位: $parent_field，未同步 Sprints)"
-                success=true
-                break
-            else
-                log "⚠️  使用欄位 $parent_field 更新失敗，嘗試下一個..."
-            fi
-        done
-    fi
     
     if [ "$success" = true ]; then
         return 0
