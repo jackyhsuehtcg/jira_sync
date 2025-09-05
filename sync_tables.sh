@@ -161,7 +161,7 @@ while IFS='|' read -r key value; do
     log "表格 $key 將立即開始第一次同步"
 done < "$TABLES_FILE"
 
-# 父子關係更新函數
+# 父子關係更新函數 (包含 Sprints 同步)
 update_parent_child_relationships() {
     local team=$1
     local table=$2
@@ -182,7 +182,7 @@ update_parent_child_relationships() {
     # 組合 Lark 表格 URL
     local lark_url="https://igxy0zaeo1r.sg.larksuite.com/wiki/${wiki_token}?table=${table_id}"
     
-    log "🔗 開始更新表格 $key 的父子關係"
+    log "🔗 開始更新表格 $key 的父子關係和 Sprints 同步"
     log "📍 表格 URL: $lark_url"
     
     # 執行父子關係更新程式
@@ -193,26 +193,47 @@ update_parent_child_relationships() {
         return 1
     fi
     
-    # 嘗試兩種可能的父子關係欄位名稱
+    # 定義可能的欄位名稱組合
     local parent_fields=("父記錄" "Parent Tickets")
+    local sprints_fields=("Sprints" "Sprint" "衝刺")
     local success=false
     
+    # 嘗試不同的欄位組合
     for parent_field in "${parent_fields[@]}"; do
-        log "🔗 嘗試使用欄位: $parent_field"
-        
-        if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
-            log "✅ 表格 $key 父子關係更新成功 (使用欄位: $parent_field)"
-            success=true
-            break
-        else
-            log "⚠️  使用欄位 $parent_field 更新失敗，嘗試下一個..."
-        fi
+        for sprints_field in "${sprints_fields[@]}"; do
+            log "🔗 嘗試使用欄位組合: 父子關係='$parent_field', Sprints='$sprints_field'"
+            
+            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --sprints-field "$sprints_field" --execute; then
+                log "✅ 表格 $key 父子關係和 Sprints 更新成功 (父子關係: $parent_field, Sprints: $sprints_field)"
+                success=true
+                break 2
+            else
+                log "⚠️  使用欄位組合 '$parent_field' + '$sprints_field' 失敗，嘗試下一個..."
+            fi
+        done
     done
+    
+    # 如果 Sprints 欄位都失敗，嘗試只更新父子關係
+    if [ "$success" = false ]; then
+        log "🔄 Sprints 欄位同步失敗，嘗試只更新父子關係..."
+        
+        for parent_field in "${parent_fields[@]}"; do
+            log "🔗 嘗試使用父子關係欄位: $parent_field"
+            
+            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
+                log "✅ 表格 $key 父子關係更新成功 (使用欄位: $parent_field，未同步 Sprints)"
+                success=true
+                break
+            else
+                log "⚠️  使用欄位 $parent_field 更新失敗，嘗試下一個..."
+            fi
+        done
+    fi
     
     if [ "$success" = true ]; then
         return 0
     else
-        log "❌ 表格 $key 父子關係更新失敗 (已嘗試所有可能的欄位名稱)"
+        log "❌ 表格 $key 父子關係更新完全失敗 (已嘗試所有可能的欄位組合)"
         return 1
     fi
 }
