@@ -161,7 +161,43 @@ while IFS='|' read -r key value; do
     log "表格 $key 將立即開始第一次同步"
 done < "$TABLES_FILE"
 
-# 父子關係更新函數 (包含 Sprints 同步)
+# Sprints 同步函數
+sync_sprints_from_parent_to_child() {
+    local team=$1
+    local table=$2
+    local lark_url=$3
+    local key="${team}.${table}"
+    
+    log "📋 開始同步父單 Sprints 到子單..."
+    
+    # 執行 Sprints 同步程式
+    local parent_updater="${SCRIPT_DIR}/parent_child_relationship_updater.py"
+    
+    # 嘗試不同的 Sprints 欄位名稱
+    local sprints_fields=("Sprints" "Sprint" "衝刺")
+    local parent_fields=("父記錄" "Parent Tickets")
+    local sprints_success=false
+    
+    for parent_field in "${parent_fields[@]}"; do
+        for sprints_field in "${sprints_fields[@]}"; do
+            log "📋 嘗試同步 Sprints 欄位: $sprints_field (父子關係欄位: $parent_field)"
+            
+            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --sprints-field "$sprints_field" --execute; then
+                log "✅ Sprints 同步成功 (使用欄位: $sprints_field)"
+                sprints_success=true
+                break 2
+            else
+                log "⚠️  Sprints 欄位 '$sprints_field' 同步失敗，嘗試下一個..."
+            fi
+        done
+    done
+    
+    if [ "$sprints_success" = false ]; then
+        log "⚠️  未找到合適的 Sprints 欄位，跳過 Sprints 同步"
+    fi
+}
+
+# 父子關係更新函數
 update_parent_child_relationships() {
     local team=$1
     local table=$2
@@ -193,30 +229,29 @@ update_parent_child_relationships() {
         return 1
     fi
     
-    # 直接同步父單 Sprints 到子單，不做複雜判斷
+    # 第一步：同步父子關係
     local parent_fields=("父記錄" "Parent Tickets")
-    local sprints_fields=("Sprints" "Sprint" "衝刺")
-    local success=false
+    local parent_success=false
     
-    # 嘗試不同的欄位組合，找到就直接執行
     for parent_field in "${parent_fields[@]}"; do
-        for sprints_field in "${sprints_fields[@]}"; do
-            log "🔗 嘗試使用欄位組合: 父子關係='$parent_field', Sprints='$sprints_field'"
-            
-            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --sprints-field "$sprints_field" --execute; then
-                log "✅ 表格 $key 父子關係和 Sprints 同步完成 (父子關係: $parent_field, Sprints: $sprints_field)"
-                success=true
-                break 2
-            else
-                log "⚠️  欄位組合 '$parent_field' + '$sprints_field' 不適用，繼續嘗試..."
-            fi
-        done
+        log "🔗 嘗試同步父子關係，使用欄位: $parent_field"
+        
+        if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
+            log "✅ 父子關係同步成功 (使用欄位: $parent_field)"
+            parent_success=true
+            break
+        else
+            log "⚠️  父子關係欄位 '$parent_field' 不適用，嘗試下一個..."
+        fi
     done
     
-    if [ "$success" = true ]; then
+    if [ "$parent_success" = true ]; then
+        # 第二步：同步父單 Sprints 到子單
+        log "🎯 父子關係更新完成，開始同步 Sprints..."
+        sync_sprints_from_parent_to_child "$team" "$table" "$lark_url"
         return 0
     else
-        log "❌ 表格 $key 父子關係更新完全失敗 (已嘗試所有可能的欄位組合)"
+        log "❌ 表格 $key 父子關係更新失敗 (已嘗試所有可能的父子關係欄位)"
         return 1
     fi
 }
