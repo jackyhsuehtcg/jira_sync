@@ -396,24 +396,22 @@ class ParentChildRelationshipUpdater:
                 
                 print(f"  處理批次 {batch_num + 1}/{total_batches} ({len(batch_tickets)} 筆票據)")
                 
-                # 構建 JQL 查詢這批票據，包含 parent 和 customfield_10020 (Sprints)
+                # 構建 JQL 查詢這批票據，只需要 parent 欄位
                 jql = f"key in ({','.join(batch_tickets)})"
                 
-                # 批次獲取票據資訊，包含 parent 和 Sprints 欄位
-                issues_data = self.jira_client.search_issues(jql, ['parent', 'customfield_10020'])
+                # 批次獲取票據資訊，只查詢 parent 欄位
+                issues_data = self.jira_client.search_issues(jql, ['parent'])
                 
-                # 處理這批票據的父子關係和 Sprints
+                # 處理這批票據的父子關係
                 for ticket_key, issue_data in issues_data.items():
                     fields = issue_data.get('fields', {})
                     parent_issue = fields.get('parent')
-                    sprints_field = fields.get('customfield_10020')
                     
                     if parent_issue:
                         parent_key = parent_issue.get('key')
                         if parent_key:
                             parent_relationships[ticket_key] = {
-                                'parent_key': parent_key,
-                                'child_sprints': sprints_field  # 保存子票據當前的 Sprints
+                                'parent_key': parent_key
                             }
                             print(f"    ✓ {ticket_key} -> 父票據: {parent_key}")
                 
@@ -427,80 +425,78 @@ class ParentChildRelationshipUpdater:
             print(f"✗ 批次獲取 JIRA 資料失敗: {e}")
             return {}
 
-    def get_parent_sprints_data(self, parent_tickets: List[str]) -> Dict[str, List[Dict[str, Any]]]:
-        """批次獲取父票據的 Sprints 資訊"""
-        print(f"  獲取 {len(parent_tickets)} 個父票據的 Sprints 資訊")
+    def get_parent_sprints_from_lark(self, obj_token: str, table_id: str, 
+                                   parent_record_ids: List[str], sprints_field: str,
+                                   ticket_field_name: str) -> Dict[str, Any]:
+        """從 Lark 表格獲取父記錄的 Sprints 欄位值（數字格式）"""
+        print(f"  從 Lark 表格獲取 {len(parent_record_ids)} 個父記錄的 Sprints 資訊")
         
         parent_sprints = {}
-        batch_size = 200
-        total_batches = (len(parent_tickets) + batch_size - 1) // batch_size
         
         try:
-            for batch_num in range(total_batches):
-                start_idx = batch_num * batch_size
-                end_idx = min(start_idx + batch_size, len(parent_tickets))
-                batch_tickets = parent_tickets[start_idx:end_idx]
-                
-                print(f"    處理父票據批次 {batch_num + 1}/{total_batches} ({len(batch_tickets)} 筆)")
-                
-                # 查詢父票據的 Sprints 欄位
-                jql = f"key in ({','.join(batch_tickets)})"
-                issues_data = self.jira_client.search_issues(jql, ['customfield_10020'])
-                
-                for ticket_key, issue_data in issues_data.items():
-                    sprints_field = issue_data.get('fields', {}).get('customfield_10020', [])
-                    if sprints_field:
-                        parent_sprints[ticket_key] = sprints_field
-                        sprint_names = []
-                        for sprint in sprints_field:
-                            if isinstance(sprint, dict):
-                                sprint_names.append(sprint.get('name', 'Unknown'))
-                        if sprint_names:
-                            print(f"      {ticket_key}: {', '.join(sprint_names)}")
-                    else:
-                        parent_sprints[ticket_key] = []
+            # 獲取所有父記錄的資料
+            all_records = self.lark_client.get_records(obj_token, table_id)
             
-            sprints_count = len([k for k, v in parent_sprints.items() if v])
-            print(f"  ✓ 成功獲取父票據 Sprints，{sprints_count} 個票據有 Sprints 資訊")
+            # 建立記錄 ID 對應的資料字典
+            record_data_map = {}
+            for record in all_records:
+                record_id = record.get("record_id")
+                fields = record.get("fields", {})
+                ticket_number = fields.get(ticket_field_name)
+                sprints_value = fields.get(sprints_field)
+                
+                if record_id and ticket_number:
+                    record_data_map[record_id] = {
+                        'ticket_number': ticket_number,
+                        'sprints_value': sprints_value
+                    }
+            
+            # 為每個父記錄 ID 提取 Sprints 值
+            for parent_record_id in parent_record_ids:
+                if parent_record_id in record_data_map:
+                    record_data = record_data_map[parent_record_id]
+                    sprints_value = record_data['sprints_value']
+                    ticket_number = record_data['ticket_number']
+                    
+                    parent_sprints[parent_record_id] = sprints_value
+                    print(f"      ✓ 記錄 {parent_record_id} ({ticket_number}): Sprints = {sprints_value}")
+                else:
+                    print(f"      ⚠️  未找到父記錄 ID: {parent_record_id}")
+            
+            sprints_count = len([k for k, v in parent_sprints.items() if v is not None])
+            print(f"  ✓ 成功獲取 {sprints_count} 個父記錄的 Sprints 資訊")
             return parent_sprints
             
         except Exception as e:
-            print(f"  ✗ 獲取父票據 Sprints 失敗: {e}")
+            print(f"  ✗ 從 Lark 獲取父記錄 Sprints 失敗: {e}")
             return {}
 
-    def format_sprints_for_lark(self, sprints_data: List[Dict[str, Any]]) -> List[str]:
-        """將 JIRA Sprints 格式化為 Lark 多選欄位格式"""
-        if not sprints_data:
-            return []
-        
-        formatted_sprints = []
-        for sprint in sprints_data:
-            if isinstance(sprint, dict):
-                sprint_name = sprint.get('name')
-                if sprint_name:
-                    formatted_sprints.append(sprint_name)
-        
-        return formatted_sprints
     
     def filter_valid_relationships(self, parent_relationships: Dict[str, Dict[str, Any]], 
-                                 ticket_to_record: Dict[str, str]) -> List[Dict[str, Any]]:
+                                 ticket_to_record: Dict[str, str],
+                                 obj_token: str, table_id: str, sprints_field: str,
+                                 ticket_field_name: str) -> List[Dict[str, Any]]:
         """篩選有效的父子關係並獲取父票據的 Sprints"""
         print(f"\n--- 步驟 3: 篩選有效的父子關係並獲取父票據 Sprints ---")
         
         valid_updates = []
         parent_tickets_found = set()
-        parent_tickets_to_query = set()
+        parent_record_ids = []
         
-        # 收集需要查詢的父票據
+        # 收集父記錄 ID
         for child_ticket, relationship_info in parent_relationships.items():
             parent_ticket = relationship_info['parent_key']
             if parent_ticket in ticket_to_record:
-                parent_tickets_to_query.add(parent_ticket)
+                parent_record_id = ticket_to_record[parent_ticket]
+                if parent_record_id not in parent_record_ids:
+                    parent_record_ids.append(parent_record_id)
         
-        # 批次獲取父票據的 Sprints 資訊
+        # 從 Lark 表格獲取父記錄的 Sprints 資訊
         parent_sprints_data = {}
-        if parent_tickets_to_query:
-            parent_sprints_data = self.get_parent_sprints_data(list(parent_tickets_to_query))
+        if parent_record_ids:
+            parent_sprints_data = self.get_parent_sprints_from_lark(
+                obj_token, table_id, parent_record_ids, sprints_field, ticket_field_name
+            )
         
         # 處理每個子票據的關係
         for child_ticket, relationship_info in parent_relationships.items():
@@ -512,24 +508,21 @@ class ParentChildRelationshipUpdater:
                 parent_record_id = ticket_to_record.get(parent_ticket)
                 
                 if child_record_id and parent_record_id:
-                    # 獲取父票據的 Sprints
-                    parent_sprints = parent_sprints_data.get(parent_ticket, [])
-                    child_sprints = relationship_info.get('child_sprints', [])
+                    # 獲取父記錄的 Sprints 數值
+                    parent_sprints = parent_sprints_data.get(parent_record_id)
                     
                     valid_updates.append({
                         'child_ticket': child_ticket,
                         'child_record_id': child_record_id,
                         'parent_ticket': parent_ticket,
                         'parent_record_id': parent_record_id,
-                        'parent_sprints': parent_sprints,
-                        'child_sprints': child_sprints
+                        'parent_sprints': parent_sprints
                     })
                     parent_tickets_found.add(parent_ticket)
                     
                     # 顯示 Sprints 同步資訊
-                    if parent_sprints:
-                        sprints_names = [sprint.get('name', 'Unknown') for sprint in parent_sprints if isinstance(sprint, dict)]
-                        print(f"  ✓ {child_ticket} -> {parent_ticket} (Sprints: {', '.join(sprints_names)})")
+                    if parent_sprints is not None:
+                        print(f"  ✓ {child_ticket} -> {parent_ticket} (Sprints: {parent_sprints})")
                     else:
                         print(f"  ✓ {child_ticket} -> {parent_ticket} (無 Sprints)")
             else:
@@ -558,12 +551,9 @@ class ParentChildRelationshipUpdater:
         
         for i, update in enumerate(valid_updates, 1):
             sprints_info = ""
-            if sprints_field and update.get('parent_sprints'):
-                sprints_names = [s.get('name', 'Unknown') for s in update['parent_sprints'] if isinstance(s, dict)]
-                if sprints_names:
-                    sprints_info = ', '.join(sprints_names)[:27] + ('...' if len(', '.join(sprints_names)) > 27 else '')
-                else:
-                    sprints_info = "無 Sprints"
+            if sprints_field and update.get('parent_sprints') is not None:
+                sprints_value = update['parent_sprints']
+                sprints_info = str(sprints_value)
             elif sprints_field:
                 sprints_info = "無 Sprints"
             else:
@@ -573,7 +563,7 @@ class ParentChildRelationshipUpdater:
                   f"{update['child_record_id']:<15} {update['parent_record_id']:<15} {sprints_info:<30}")
         
         if sprints_field:
-            sprints_updates = sum(1 for u in valid_updates if u.get('parent_sprints'))
+            sprints_updates = sum(1 for u in valid_updates if u.get('parent_sprints') is not None)
             print(f"\n其中 {sprints_updates} 筆記錄將同步 Sprints 資訊")
     
     def batch_update_relationships(self, obj_token: str, table_id: str,
@@ -596,12 +586,11 @@ class ParentChildRelationshipUpdater:
             # 準備更新欄位
             update_fields = {parent_field: [update['parent_record_id']]}
             
-            # 同步 Sprints 欄位
-            if sprints_field and update.get('parent_sprints'):
-                sprints_data = self.format_sprints_for_lark(update['parent_sprints'])
-                if sprints_data:
-                    update_fields[sprints_field] = sprints_data
-                    print(f"  準備同步 Sprints: {update['child_ticket']} -> {len(sprints_data)} 個 Sprint")
+            # 同步 Sprints 欄位（數字格式）
+            if sprints_field and update.get('parent_sprints') is not None:
+                sprints_value = update['parent_sprints']
+                update_fields[sprints_field] = sprints_value
+                print(f"  準備同步 Sprints: {update['child_ticket']} -> {sprints_value}")
             
             # 自動帶入票據號碼 (保持原格式)
             child_record_id = update['child_record_id']
@@ -705,15 +694,15 @@ class ParentChildRelationshipUpdater:
 
     def validate_sprints_field(self, table_fields: List[Dict[str, Any]], 
                             sprints_field: str) -> bool:
-        """驗證 Sprints 欄位是否存在且為多選欄位"""
+        """驗證 Sprints 欄位是否存在且為數字欄位"""
         for field in table_fields:
             if field.get("field_name") == sprints_field:
                 field_type = field.get("ui_type")
-                if field_type == "MultiSelect":
+                if field_type == "Number":
                     print(f"✓ 找到 Sprints 欄位: {sprints_field} ({field_type})")
                     return True
                 else:
-                    print(f"✗ 欄位 {sprints_field} 不是多選欄位 (類型: {field_type})")
+                    print(f"✗ 欄位 {sprints_field} 不是數字欄位 (類型: {field_type})")
                     return False
         
         print(f"✗ 未找到欄位: {sprints_field}")
@@ -806,7 +795,10 @@ class ParentChildRelationshipUpdater:
             parent_relationships = self.get_jira_parent_relationships(list(ticket_to_record.keys()))
             
             # 步驟 3: 篩選有效關係並獲取父票據 Sprints
-            valid_updates = self.filter_valid_relationships(parent_relationships, ticket_to_record)
+            valid_updates = self.filter_valid_relationships(
+                parent_relationships, ticket_to_record, 
+                obj_token, url_info["table_id"], sprints_field, ticket_field_name
+            )
             
             # 步驟 4: 執行更新
             if preview:

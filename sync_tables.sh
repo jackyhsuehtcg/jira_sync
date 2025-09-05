@@ -9,6 +9,11 @@ CONFIG_FILE="${SCRIPT_DIR}/config.yaml"
 PYTHON_SCRIPT="${SCRIPT_DIR}/main.py"
 LOG_FILE="${SCRIPT_DIR}/sync_tables.log"
 
+# 欄位定義常數
+readonly PARENT_FIELD="Parent Tickets"
+readonly SPRINTS_FIELD="Sprints"
+readonly PARENT_UPDATER="${SCRIPT_DIR}/parent_child_relationship_updater.py"
+
 # 檢查必要檔案是否存在
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "錯誤: 找不到配置檔案 $CONFIG_FILE"
@@ -161,43 +166,8 @@ while IFS='|' read -r key value; do
     log "表格 $key 將立即開始第一次同步"
 done < "$TABLES_FILE"
 
-# Sprints 同步函數
-sync_sprints_from_parent_to_child() {
-    local team=$1
-    local table=$2
-    local lark_url=$3
-    local key="${team}.${table}"
-    
-    log "📋 開始同步父單 Sprints 到子單..."
-    
-    # 執行 Sprints 同步程式
-    local parent_updater="${SCRIPT_DIR}/parent_child_relationship_updater.py"
-    
-    # 嘗試不同的 Sprints 欄位名稱
-    local sprints_fields=("Sprints" "Sprint" "衝刺")
-    local parent_fields=("父記錄" "Parent Tickets")
-    local sprints_success=false
-    
-    for parent_field in "${parent_fields[@]}"; do
-        for sprints_field in "${sprints_fields[@]}"; do
-            log "📋 嘗試同步 Sprints 欄位: $sprints_field (父子關係欄位: $parent_field)"
-            
-            if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --sprints-field "$sprints_field" --execute; then
-                log "✅ Sprints 同步成功 (使用欄位: $sprints_field)"
-                sprints_success=true
-                break 2
-            else
-                log "⚠️  Sprints 欄位 '$sprints_field' 同步失敗，嘗試下一個..."
-            fi
-        done
-    done
-    
-    if [ "$sprints_success" = false ]; then
-        log "⚠️  未找到合適的 Sprints 欄位，跳過 Sprints 同步"
-    fi
-}
 
-# 父子關係更新函數
+# 父子關係和 Sprints 同步函數
 update_parent_child_relationships() {
     local team=$1
     local table=$2
@@ -221,37 +191,19 @@ update_parent_child_relationships() {
     log "🔗 開始更新表格 $key 的父子關係和 Sprints 同步"
     log "📍 表格 URL: $lark_url"
     
-    # 執行父子關係更新程式
-    local parent_updater="${SCRIPT_DIR}/parent_child_relationship_updater.py"
-    
-    if [ ! -f "$parent_updater" ]; then
-        log "❌ 找不到父子關係更新程式: $parent_updater"
+    if [ ! -f "$PARENT_UPDATER" ]; then
+        log "❌ 找不到父子關係更新程式: $PARENT_UPDATER"
         return 1
     fi
     
-    # 第一步：同步父子關係
-    local parent_fields=("父記錄" "Parent Tickets")
-    local parent_success=false
+    # 執行父子關係 + Sprints 同步
+    log "🔗 使用欄位: 父子關係='$PARENT_FIELD', Sprints='$SPRINTS_FIELD'"
     
-    for parent_field in "${parent_fields[@]}"; do
-        log "🔗 嘗試同步父子關係，使用欄位: $parent_field"
-        
-        if python3 "$parent_updater" --url "$lark_url" --parent-field "$parent_field" --execute; then
-            log "✅ 父子關係同步成功 (使用欄位: $parent_field)"
-            parent_success=true
-            break
-        else
-            log "⚠️  父子關係欄位 '$parent_field' 不適用，嘗試下一個..."
-        fi
-    done
-    
-    if [ "$parent_success" = true ]; then
-        # 第二步：同步父單 Sprints 到子單
-        log "🎯 父子關係更新完成，開始同步 Sprints..."
-        sync_sprints_from_parent_to_child "$team" "$table" "$lark_url"
+    if python3 "$PARENT_UPDATER" --url "$lark_url" --parent-field "$PARENT_FIELD" --sprints-field "$SPRINTS_FIELD" --execute; then
+        log "✅ 表格 $key 父子關係和 Sprints 同步完成"
         return 0
     else
-        log "❌ 表格 $key 父子關係更新失敗 (已嘗試所有可能的父子關係欄位)"
+        log "❌ 表格 $key 父子關係更新失敗"
         return 1
     fi
 }
@@ -269,10 +221,12 @@ sync_table() {
     if python3 "$PYTHON_SCRIPT" sync --team "$team" --table "$table"; then
         log "✅ 表格 $key 同步成功"
         
-        # 如果是 management 的 TCG 表，則額外執行父子關係更新
-        if [ "$team" = "management" ] && [ "$table" = "tcg_table" ]; then
-            log "🔍 檢測到 management.tcg_table，執行父子關係更新..."
-            update_parent_child_relationships "$team" "$table"
+        # 嘗試執行父子關係更新（如果表格支援的話）
+        log "🔍 嘗試執行表格 $key 的父子關係更新..."
+        if update_parent_child_relationships "$team" "$table"; then
+            log "✅ 表格 $key 父子關係更新成功"
+        else
+            log "ℹ️  表格 $key 不支援父子關係更新或更新失敗，跳過"
         fi
         
         return 0
