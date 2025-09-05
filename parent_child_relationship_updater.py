@@ -557,8 +557,22 @@ class ParentChildRelationshipUpdater:
             # 同步 Sprints 欄位（數字格式）
             if sprints_field and update.get('parent_sprints') is not None:
                 sprints_value = update['parent_sprints']
-                update_fields[sprints_field] = sprints_value
-                print(f"  準備同步 Sprints: {update['child_ticket']} -> {sprints_value}")
+                # 確保 Sprints 值是數字格式
+                try:
+                    if isinstance(sprints_value, (int, float)):
+                        numeric_sprints = sprints_value
+                    elif isinstance(sprints_value, str) and sprints_value.strip():
+                        numeric_sprints = int(float(sprints_value.strip()))
+                    else:
+                        numeric_sprints = None
+                    
+                    if numeric_sprints is not None:
+                        update_fields[sprints_field] = numeric_sprints
+                        print(f"  準備同步 Sprints: {update['child_ticket']} -> {numeric_sprints} (數字)")
+                    else:
+                        print(f"  跳過 Sprints (無效值): {update['child_ticket']} -> {sprints_value}")
+                except (ValueError, TypeError):
+                    print(f"  跳過 Sprints (轉換失敗): {update['child_ticket']} -> {sprints_value}")
             
             # 自動帶入票據號碼 (保持原格式)
             child_record_id = update['child_record_id']
