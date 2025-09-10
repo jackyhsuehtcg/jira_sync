@@ -294,8 +294,8 @@ class LarkRecordManager:
         self.logger.info(f"全表掃描完成，共獲取 {len(all_records)} 筆記錄")
         return all_records
     
-    def create_record(self, obj_token: str, table_id: str, fields: Dict) -> Optional[str]:
-        """創建單筆記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
+    def create_record(self, obj_token: str, table_id: str, fields: Dict, sprints_ui_type: Optional[str] = None) -> Optional[str]:
+        """創建單筆記錄（優先依據 Sprints 欄位屬性決定格式，必要時才 fallback）"""
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records"
 
         # 檢查是否包含 Sprints 欄位
@@ -316,48 +316,81 @@ class LarkRecordManager:
                 return record.get('record_id')
             return None
 
-        # 針對 Sprints 準備兩種候選格式，依序嘗試
-        candidates: List[Any] = []
-        try:
+        # 先依據欄位屬性決定應用的格式
+        preferred_candidates: List[Any] = []
+        if sprints_ui_type == "Number":
+            # 目標為數字
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
+            # 次要候選：字串（保險用）
             if isinstance(sprints_value, (int, float)):
-                candidates.append(sprints_value)
+                preferred_candidates.append(str(sprints_value))
             elif isinstance(sprints_value, str) and sprints_value.strip():
-                candidates.append(int(float(sprints_value.strip())))
-        except Exception:
-            pass
-        if isinstance(sprints_value, (int, float)):
-            str_val = str(sprints_value)
-        elif isinstance(sprints_value, str) and sprints_value.strip():
-            str_val = sprints_value.strip()
+                preferred_candidates.append(sprints_value.strip())
+        elif sprints_ui_type == "SingleSelect":
+            # 目標為單選（字串）
+            if isinstance(sprints_value, (int, float)):
+                preferred_candidates.append(str(sprints_value))
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                preferred_candidates.append(sprints_value.strip())
+            # 次要候選：數字（保險用）
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
         else:
-            str_val = None
-        if str_val is not None and (len(candidates) == 0 or candidates[-1] != str_val):
-            candidates.append(str_val)
+            # 若未知欄位型別，沿用原本的雙格式候選
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
+            if isinstance(sprints_value, (int, float)):
+                preferred_candidates.append(str(sprints_value))
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                preferred_candidates.append(sprints_value.strip())
 
-        # 依序嘗試每一種格式
+        # 去重，保留順序
+        seen = set()
+        candidates = []
+        for c in preferred_candidates:
+            if (isinstance(c, str), c) not in seen:
+                candidates.append(c)
+                seen.add((isinstance(c, str), c))
+
         for idx, cand in enumerate(candidates):
             pf = dict(fields)
             pf[sprints_field] = cand
-            data = {'fields': self._preprocess_fields_for_sprints(pf, "new_record")}
+            data = {'fields': self._preprocess_fields_for_sprints(pf, "new_record", sprints_ui_type)}
             result = self._make_request('POST', url, json=data)
             if result:
                 record = result.get('record', {})
                 rid = record.get('record_id')
                 if rid:
                     if idx > 0:
-                        self.logger.info(f"Sprints 首次寫入失敗，fallback 第 {idx+1} 次嘗試成功")
+                        self.logger.info(f"Sprints 依據欄位屬性首選失敗，fallback 第 {idx+1} 次嘗試成功")
                     return rid
         
         # 兩種都失敗，最後用原始值再試一次（保險）
-        data = {'fields': self._preprocess_fields_for_sprints(fields, "new_record")}
+        data = {'fields': self._preprocess_fields_for_sprints(fields, "new_record", sprints_ui_type)}
         result = self._make_request('POST', url, json=data)
         if result:
             record = result.get('record', {})
             return record.get('record_id')
         return None
     
-    def update_record(self, obj_token: str, table_id: str, record_id: str, fields: Dict) -> bool:
-        """更新單筆記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
+    def update_record(self, obj_token: str, table_id: str, record_id: str, fields: Dict, sprints_ui_type: Optional[str] = None) -> bool:
+        """更新單筆記錄（優先依據 Sprints 欄位屬性決定格式，必要時才 fallback）"""
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/{record_id}"
 
         # 檢查是否包含 Sprints 欄位
@@ -370,40 +403,67 @@ class LarkRecordManager:
                 break
 
         if sprints_field is None or sprints_value is None:
-            data = {'fields': self._preprocess_fields_for_sprints(fields, record_id)}
+            data = {'fields': self._preprocess_fields_for_sprints(fields, record_id, sprints_ui_type)}
             result = self._make_request('PUT', url, json=data)
             return result is not None
 
-        # 針對 Sprints 準備兩種候選格式，依序嘗試
-        candidates: List[Any] = []
-        try:
+        preferred_candidates: List[Any] = []
+        if sprints_ui_type == "Number":
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
             if isinstance(sprints_value, (int, float)):
-                candidates.append(sprints_value)
+                preferred_candidates.append(str(sprints_value))
             elif isinstance(sprints_value, str) and sprints_value.strip():
-                candidates.append(int(float(sprints_value.strip())))
-        except Exception:
-            pass
-        if isinstance(sprints_value, (int, float)):
-            str_val = str(sprints_value)
-        elif isinstance(sprints_value, str) and sprints_value.strip():
-            str_val = sprints_value.strip()
+                preferred_candidates.append(sprints_value.strip())
+        elif sprints_ui_type == "SingleSelect":
+            if isinstance(sprints_value, (int, float)):
+                preferred_candidates.append(str(sprints_value))
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                preferred_candidates.append(sprints_value.strip())
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
         else:
-            str_val = None
-        if str_val is not None and (len(candidates) == 0 or candidates[-1] != str_val):
-            candidates.append(str_val)
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    preferred_candidates.append(sprints_value)
+                elif isinstance(sprints_value, str) and sprints_value.strip():
+                    preferred_candidates.append(int(float(sprints_value.strip())))
+            except Exception:
+                pass
+            if isinstance(sprints_value, (int, float)):
+                preferred_candidates.append(str(sprints_value))
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                preferred_candidates.append(sprints_value.strip())
+
+        seen = set()
+        candidates = []
+        for c in preferred_candidates:
+            if (isinstance(c, str), c) not in seen:
+                candidates.append(c)
+                seen.add((isinstance(c, str), c))
 
         for idx, cand in enumerate(candidates):
             pf = dict(fields)
             pf[sprints_field] = cand
-            data = {'fields': self._preprocess_fields_for_sprints(pf, record_id)}
+            data = {'fields': self._preprocess_fields_for_sprints(pf, record_id, sprints_ui_type)}
             result = self._make_request('PUT', url, json=data)
             if result is not None:
                 if idx > 0:
-                    self.logger.info(f"Sprints 首次寫入失敗，fallback 第 {idx+1} 次嘗試成功")
+                    self.logger.info(f"Sprints 依據欄位屬性首選失敗，fallback 第 {idx+1} 次嘗試成功")
                 return True
 
         # 兩種都失敗，最後用原始值再試一次（保險）
-        data = {'fields': self._preprocess_fields_for_sprints(fields, record_id)}
+        data = {'fields': self._preprocess_fields_for_sprints(fields, record_id, sprints_ui_type)}
         result = self._make_request('PUT', url, json=data)
         return result is not None
     
@@ -451,7 +511,7 @@ class LarkRecordManager:
         self.logger.debug(f"動態批次大小計算: 平均欄位 {avg_fields:.1f}, 平均長度 {avg_content_length:.0f}, 批次大小 {batch_size}")
         return batch_size
 
-    def _preprocess_updates_for_sprints(self, updates: List[Tuple[str, Dict[str, Any]]]) -> List[Tuple[str, Dict[str, Any]]]:
+    def _preprocess_updates_for_sprints(self, updates: List[Tuple[str, Dict[str, Any]]], sprints_ui_type: Optional[str] = None) -> List[Tuple[str, Dict[str, Any]]]:
         """
         預處理更新資料，為 Sprints 欄位添加 fallback 支援
         
@@ -480,14 +540,14 @@ class LarkRecordManager:
             
             # 如果找到 Sprints 欄位，應用 fallback 邏輯
             if sprints_field and sprints_value is not None:
-                processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id)
+                processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id, sprints_ui_type)
                 processed_fields[sprints_field] = processed_sprints_value
             
             processed_updates.append((record_id, processed_fields))
         
         return processed_updates
     
-    def _process_sprints_value_with_fallback(self, sprints_value: Any, record_id: str) -> Any:
+    def _process_sprints_value_with_fallback(self, sprints_value: Any, record_id: str, sprints_ui_type: Optional[str] = None) -> Any:
         """
         處理 Sprints 值，支援數字格式和單選格式的 fallback
         單選格式使用與 JIRA Status 相同的字串格式
@@ -502,7 +562,22 @@ class LarkRecordManager:
         if sprints_value is None or sprints_value == "":
             return sprints_value
             
-        # 方法 1: 嘗試數字格式
+        # 若指定了欄位型別，優先按照型別轉換
+        if sprints_ui_type == "Number":
+            try:
+                if isinstance(sprints_value, (int, float)):
+                    return sprints_value
+                if isinstance(sprints_value, str) and sprints_value.strip():
+                    return int(float(sprints_value.strip()))
+            except Exception:
+                pass
+        elif sprints_ui_type == "SingleSelect":
+            if isinstance(sprints_value, (int, float)):
+                return str(sprints_value)
+            if isinstance(sprints_value, str) and sprints_value.strip():
+                return sprints_value.strip()
+
+        # 方法 1: 嘗試數字格式（未指定型別時）
         try:
             if isinstance(sprints_value, (int, float)):
                 numeric_sprints = sprints_value
@@ -518,7 +593,7 @@ class LarkRecordManager:
         except (ValueError, TypeError):
             self.logger.debug(f"Sprints 數字格式轉換失敗，嘗試單選格式: {record_id} -> {sprints_value}")
         
-        # 方法 2: 如果數字格式失敗，使用單選格式（字串值，與 JIRA Status 相同）
+        # 方法 2: 如果數字格式失敗，使用單選格式（字串值）
         try:
             # 單選欄位格式就是簡單的字串值，與 JIRA Status 的 extract_nested 結果相同
             if isinstance(sprints_value, (int, float)):
@@ -540,7 +615,7 @@ class LarkRecordManager:
         return sprints_value
 
     
-    def _preprocess_fields_for_sprints(self, fields: Dict[str, Any], record_id: str) -> Dict[str, Any]:
+    def _preprocess_fields_for_sprints(self, fields: Dict[str, Any], record_id: str, sprints_ui_type: Optional[str] = None) -> Dict[str, Any]:
         """
         為單筆記錄預處理欄位，支援 Sprints 欄位 fallback
         
@@ -567,13 +642,13 @@ class LarkRecordManager:
         
         # 如果找到 Sprints 欄位，應用 fallback 邏輯
         if sprints_field and sprints_value is not None:
-            processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id)
+            processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id, sprints_ui_type)
             processed_fields[sprints_field] = processed_sprints_value
         
         return processed_fields
 
     def batch_update_records(self, obj_token: str, table_id: str, 
-                           updates: List[Tuple[str, Dict[str, Any]]]) -> bool:
+                           updates: List[Tuple[str, Dict[str, Any]]], sprints_ui_type: Optional[str] = None) -> bool:
         """
         批量更新記錄（自動分批處理，支援 Sprints 欄位 fallback）
         
@@ -589,7 +664,7 @@ class LarkRecordManager:
             return True
         
         # 預處理更新資料，處理 Sprints 欄位的 fallback
-        processed_updates = self._preprocess_updates_for_sprints(updates)
+        processed_updates = self._preprocess_updates_for_sprints(updates, sprints_ui_type)
             
         # 動態計算批次大小（基於 fields 部分）
         field_records = [fields for _, fields in processed_updates]
@@ -683,15 +758,15 @@ class LarkRecordManager:
         return True
     
     def batch_create_records(self, obj_token: str, table_id: str, 
-                           records_data: List[Dict]) -> Tuple[bool, List[str], List[str]]:
-        """批次創建記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
+                           records_data: List[Dict], sprints_ui_type: Optional[str] = None) -> Tuple[bool, List[str], List[str]]:
+        """批次創建記錄（優先依據 Sprints 欄位屬性決定格式，必要時才 fallback）"""
         if not records_data:
             return True, [], []
         
         # 預處理記錄資料，處理 Sprints fallback
         processed_records_data = []
         for i, record_fields in enumerate(records_data):
-            processed_fields = self._preprocess_fields_for_sprints(record_fields, f"new_record_{i}")
+            processed_fields = self._preprocess_fields_for_sprints(record_fields, f"new_record_{i}", sprints_ui_type)
             processed_records_data.append(processed_fields)
         
         max_batch_size = 500
@@ -1030,22 +1105,41 @@ class LarkClient:
         
         return self.record_manager.get_all_records(obj_token, table_id)
     
+    def _get_field_ui_type(self, obj_token: str, table_id: str, field_name: str) -> Optional[str]:
+        fields = self.table_manager.get_table_fields(obj_token, table_id)
+        for f in fields:
+            if f.get('field_name') == field_name:
+                return f.get('ui_type')
+        return None
+
     def create_record(self, table_id: str, fields: Dict, wiki_token: str = None) -> Optional[str]:
-        """創建單筆記錄"""
+        """創建單筆記錄（先判斷 Sprints 欄位屬性，再決定格式）"""
         obj_token = self._get_obj_token(wiki_token)
         if not obj_token:
             return None
+
+        sprints_ui_type = None
+        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+            if name in fields:
+                sprints_ui_type = self._get_field_ui_type(obj_token, table_id, name)
+                break
         
-        return self.record_manager.create_record(obj_token, table_id, fields)
+        return self.record_manager.create_record(obj_token, table_id, fields, sprints_ui_type)
     
     def update_record(self, table_id: str, record_id: str, fields: Dict,
                      wiki_token: str = None) -> bool:
-        """更新單筆記錄"""
+        """更新單筆記錄（先判斷 Sprints 欄位屬性，再決定格式）"""
         obj_token = self._get_obj_token(wiki_token)
         if not obj_token:
             return False
+
+        sprints_ui_type = None
+        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+            if name in fields:
+                sprints_ui_type = self._get_field_ui_type(obj_token, table_id, name)
+                break
         
-        return self.record_manager.update_record(obj_token, table_id, record_id, fields)
+        return self.record_manager.update_record(obj_token, table_id, record_id, fields, sprints_ui_type)
     
     def get_table_fields(self, table_id: str, wiki_token: str = None) -> List[Dict[str, Any]]:
         """
@@ -1083,12 +1177,22 @@ class LarkClient:
     
     def batch_create_records(self, table_id: str, records: List[Dict],
                            wiki_token: str = None) -> Tuple[bool, List[str], List[str]]:
-        """批次創建記錄"""
+        """批次創建記錄（先判斷 Sprints 欄位屬性，再決定格式）"""
         obj_token = self._get_obj_token(wiki_token)
         if not obj_token:
             return False, [], ['無法獲取 Obj Token']
+
+        # 嘗試從第一筆含有 Sprints 的資料判斷欄位型別
+        sprints_ui_type = None
+        for rec in records:
+            for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                if name in rec:
+                    sprints_ui_type = self._get_field_ui_type(obj_token, table_id, name)
+                    break
+            if sprints_ui_type:
+                break
         
-        return self.record_manager.batch_create_records(obj_token, table_id, records)
+        return self.record_manager.batch_create_records(obj_token, table_id, records, sprints_ui_type)
     
     def batch_delete_records(self, table_id: str, record_ids: List[str],
                            wiki_token: str = None) -> bool:
@@ -1101,12 +1205,22 @@ class LarkClient:
     
     def batch_update_records(self, table_id: str, updates: List[Tuple[str, Dict]],
                            wiki_token: str = None) -> bool:
-        """批次更新記錄"""
+        """批次更新記錄（先判斷 Sprints 欄位屬性，再決定格式）"""
         obj_token = self._get_obj_token(wiki_token)
         if not obj_token:
             return False
+
+        # 嘗試從第一筆含有 Sprints 的更新判斷欄位型別
+        sprints_ui_type = None
+        for _, fields in updates:
+            for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                if name in fields:
+                    sprints_ui_type = self._get_field_ui_type(obj_token, table_id, name)
+                    break
+            if sprints_ui_type:
+                break
         
-        return self.record_manager.batch_update_records(obj_token, table_id, updates)
+        return self.record_manager.batch_update_records(obj_token, table_id, updates, sprints_ui_type)
     
     def get_user_by_email(self, email: str) -> Optional[Dict]:
         """根據 Email 獲取用戶資訊"""

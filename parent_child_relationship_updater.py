@@ -539,7 +539,8 @@ class ParentChildRelationshipUpdater:
                                  parent_field: str, sprints_field: str,
                                  ticket_field_name: str,
                                  record_to_ticket_data: Dict[str, Any], 
-                                 dry_run: bool = False) -> bool:
+                                 dry_run: bool = False,
+                                 sprints_ui_type: str = None) -> bool:
         """批次更新父子關係和 Sprints"""
         mode_name = "模擬執行" if dry_run else "實際執行"
         print(f"\n--- 步驟 4: {mode_name}更新 Lark 資料表 (父子關係 + Sprints) ---")
@@ -554,48 +555,36 @@ class ParentChildRelationshipUpdater:
             # 準備更新欄位
             update_fields = {parent_field: [update['parent_record_id']]}
             
-            # 同步 Sprints 欄位（支援數字和單選格式的 fallback）
+            # 同步 Sprints 欄位（先依欄位屬性決定格式，必要時再於 API 端 fallback）
             if sprints_field and update.get('parent_sprints') is not None:
                 sprints_value = update['parent_sprints']
-                sprints_updated = False
-                
-                # 方法 1: 嘗試數字格式
                 try:
-                    if isinstance(sprints_value, (int, float)):
-                        numeric_sprints = sprints_value
-                    elif isinstance(sprints_value, str) and sprints_value.strip():
-                        numeric_sprints = int(float(sprints_value.strip()))
-                    else:
-                        numeric_sprints = None
-                    
-                    if numeric_sprints is not None:
-                        update_fields[sprints_field] = numeric_sprints
-                        print(f"  準備同步 Sprints: {update['child_ticket']} -> {numeric_sprints} (數字)")
-                        sprints_updated = True
-                except (ValueError, TypeError):
-                    print(f"  數字格式轉換失敗，嘗試單選格式: {update['child_ticket']} -> {sprints_value}")
-                
-                # 方法 2: 如果數字格式失敗，嘗試單選格式
-                if not sprints_updated:
-                    try:
-                        # 將 sprints_value 轉換為字符串用於單選欄位
+                    if sprints_ui_type == "Number":
                         if isinstance(sprints_value, (int, float)):
-                            single_select_value = str(sprints_value)
+                            update_fields[sprints_field] = sprints_value
+                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {sprints_value} (數字)")
                         elif isinstance(sprints_value, str) and sprints_value.strip():
-                            single_select_value = sprints_value.strip()
+                            num_v = int(float(sprints_value.strip()))
+                            update_fields[sprints_field] = num_v
+                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {num_v} (數字)")
+                    elif sprints_ui_type == "SingleSelect":
+                        if isinstance(sprints_value, (int, float)):
+                            ss_v = str(sprints_value)
+                        elif isinstance(sprints_value, str) and sprints_value.strip():
+                            ss_v = sprints_value.strip()
                         else:
-                            single_select_value = None
-                        
-                        if single_select_value:
-                            update_fields[sprints_field] = single_select_value
-                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {single_select_value} (單選)")
-                            sprints_updated = True
-                    except Exception as e:
-                        print(f"  單選格式轉換也失敗: {update['child_ticket']} -> {sprints_value}, 錯誤: {e}")
-                
-                # 如果兩種方法都失敗
-                if not sprints_updated:
-                    print(f"  跳過 Sprints (兩種格式都失敗): {update['child_ticket']} -> {sprints_value}")
+                            ss_v = None
+                        if ss_v is not None:
+                            update_fields[sprints_field] = ss_v
+                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {ss_v} (單選)")
+                    else:
+                        # 未知類型時保守以字串寫入
+                        ss_v = str(sprints_value).strip() if sprints_value is not None else None
+                        if ss_v:
+                            update_fields[sprints_field] = ss_v
+                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {ss_v} (預設單選)")
+                except Exception as e:
+                    print(f"  轉換 Sprints 值失敗: {update['child_ticket']} -> {sprints_value}, 錯誤: {e}")
             
             # 自動帶入票據號碼 (保持原格式)
             child_record_id = update['child_record_id']
@@ -629,7 +618,7 @@ class ParentChildRelationshipUpdater:
                 
                 print(f"  處理批次 {batch_num + 1}/{total_batches} ({len(current_batch)} 筆記錄)")
                 
-                success = self._execute_batch_update(obj_token, table_id, current_batch, sprints_field)
+                success = self._execute_batch_update(obj_token, table_id, current_batch, sprints_field, sprints_ui_type)
                 if success:
                     self.stats['successful_updates'] += len(current_batch)
                     print(f"    ✓ 批次 {batch_num + 1} 更新成功")
@@ -647,8 +636,9 @@ class ParentChildRelationshipUpdater:
     
     def _execute_batch_update(self, obj_token: str, table_id: str, 
                             batch_updates: List[Tuple[str, Dict]],
-                            sprints_field: str = None) -> bool:
-        """執行單一批次的更新，支援 Sprints 寫入失敗時的格式 fallback 重試"""
+                            sprints_field: str = None,
+                            sprints_ui_type: str = None) -> bool:
+        """執行單一批次的更新，優先依欄位型別決定格式，必要時再 fallback 重試"""
         try:
             url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_update"
             headers = {
@@ -682,13 +672,21 @@ class ParentChildRelationshipUpdater:
                             if sprints_field in flds:
                                 v = flds[sprints_field]
                                 alt = None
-                                if isinstance(v, (int, float)):
-                                    alt = str(v)
-                                elif isinstance(v, str) and v.strip():
-                                    try:
-                                        alt = int(float(v.strip()))
-                                    except Exception:
-                                        alt = None
+                                if sprints_ui_type == "Number":
+                                    # 原先期望數字，fallback 用字串
+                                    if isinstance(v, (int, float)):
+                                        alt = str(v)
+                                    elif isinstance(v, str) and v.strip():
+                                        alt = v.strip()
+                                else:
+                                    # 原先期望單選或未知，fallback 用數字
+                                    if isinstance(v, (int, float)):
+                                        alt = v
+                                    elif isinstance(v, str) and v.strip():
+                                        try:
+                                            alt = int(float(v.strip()))
+                                        except Exception:
+                                            alt = None
                                 if alt is not None:
                                     flds[sprints_field] = alt
                             fallback_records.append({
@@ -714,13 +712,19 @@ class ParentChildRelationshipUpdater:
                         if sprints_field in flds:
                             v = flds[sprints_field]
                             alt = None
-                            if isinstance(v, (int, float)):
-                                alt = str(v)
-                            elif isinstance(v, str) and v.strip():
-                                try:
-                                    alt = int(float(v.strip()))
-                                except Exception:
-                                    alt = None
+                            if sprints_ui_type == "Number":
+                                if isinstance(v, (int, float)):
+                                    alt = str(v)
+                                elif isinstance(v, str) and v.strip():
+                                    alt = v.strip()
+                            else:
+                                if isinstance(v, (int, float)):
+                                    alt = v
+                                elif isinstance(v, str) and v.strip():
+                                    try:
+                                        alt = int(float(v.strip()))
+                                    except Exception:
+                                        alt = None
                             if alt is not None:
                                 flds[sprints_field] = alt
                         fallback_records.append({
@@ -873,7 +877,7 @@ class ParentChildRelationshipUpdater:
                 self.preview_updates(valid_updates, parent_field, sprints_field)
                 success = self.batch_update_relationships(
                     obj_token, url_info["table_id"], valid_updates, parent_field, sprints_field,
-                    ticket_field_name, record_to_ticket_data, dry_run
+                    ticket_field_name, record_to_ticket_data, dry_run, sprints_ui_type
                 )
             
             # 統計和結果
