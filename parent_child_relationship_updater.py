@@ -554,10 +554,12 @@ class ParentChildRelationshipUpdater:
             # 準備更新欄位
             update_fields = {parent_field: [update['parent_record_id']]}
             
-            # 同步 Sprints 欄位（數字格式）
+            # 同步 Sprints 欄位（支援數字和單選格式的 fallback）
             if sprints_field and update.get('parent_sprints') is not None:
                 sprints_value = update['parent_sprints']
-                # 確保 Sprints 值是數字格式
+                sprints_updated = False
+                
+                # 方法 1: 嘗試數字格式
                 try:
                     if isinstance(sprints_value, (int, float)):
                         numeric_sprints = sprints_value
@@ -569,10 +571,31 @@ class ParentChildRelationshipUpdater:
                     if numeric_sprints is not None:
                         update_fields[sprints_field] = numeric_sprints
                         print(f"  準備同步 Sprints: {update['child_ticket']} -> {numeric_sprints} (數字)")
-                    else:
-                        print(f"  跳過 Sprints (無效值): {update['child_ticket']} -> {sprints_value}")
+                        sprints_updated = True
                 except (ValueError, TypeError):
-                    print(f"  跳過 Sprints (轉換失敗): {update['child_ticket']} -> {sprints_value}")
+                    print(f"  數字格式轉換失敗，嘗試單選格式: {update['child_ticket']} -> {sprints_value}")
+                
+                # 方法 2: 如果數字格式失敗，嘗試單選格式
+                if not sprints_updated:
+                    try:
+                        # 將 sprints_value 轉換為字符串用於單選欄位
+                        if isinstance(sprints_value, (int, float)):
+                            single_select_value = str(sprints_value)
+                        elif isinstance(sprints_value, str) and sprints_value.strip():
+                            single_select_value = sprints_value.strip()
+                        else:
+                            single_select_value = None
+                        
+                        if single_select_value:
+                            update_fields[sprints_field] = single_select_value
+                            print(f"  準備同步 Sprints: {update['child_ticket']} -> {single_select_value} (單選)")
+                            sprints_updated = True
+                    except Exception as e:
+                        print(f"  單選格式轉換也失敗: {update['child_ticket']} -> {sprints_value}, 錯誤: {e}")
+                
+                # 如果兩種方法都失敗
+                if not sprints_updated:
+                    print(f"  跳過 Sprints (兩種格式都失敗): {update['child_ticket']} -> {sprints_value}")
             
             # 自動帶入票據號碼 (保持原格式)
             child_record_id = update['child_record_id']
