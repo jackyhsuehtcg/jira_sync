@@ -358,10 +358,94 @@ class LarkRecordManager:
         self.logger.debug(f"動態批次大小計算: 平均欄位 {avg_fields:.1f}, 平均長度 {avg_content_length:.0f}, 批次大小 {batch_size}")
         return batch_size
 
+    def _preprocess_updates_for_sprints(self, updates: List[Tuple[str, Dict[str, Any]]]) -> List[Tuple[str, Dict[str, Any]]]:
+        """
+        預處理更新資料，為 Sprints 欄位添加 fallback 支援
+        
+        Args:
+            updates: 原始更新列表 (record_id, fields)
+            
+        Returns:
+            List[Tuple[str, Dict[str, Any]]]: 處理後的更新列表
+        """
+        processed_updates = []
+        
+        for record_id, fields in updates:
+            processed_fields = fields.copy()
+            
+            # 檢查是否有 Sprints 欄位需要處理
+            sprints_field_names = ['Sprints', 'Sprint', 'sprints', 'sprint']
+            sprints_field = None
+            sprints_value = None
+            
+            # 找到 Sprints 欄位
+            for field_name in sprints_field_names:
+                if field_name in processed_fields:
+                    sprints_field = field_name
+                    sprints_value = processed_fields[field_name]
+                    break
+            
+            # 如果找到 Sprints 欄位，應用 fallback 邏輯
+            if sprints_field and sprints_value is not None:
+                processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id)
+                processed_fields[sprints_field] = processed_sprints_value
+            
+            processed_updates.append((record_id, processed_fields))
+        
+        return processed_updates
+    
+    def _process_sprints_value_with_fallback(self, sprints_value: Any, record_id: str) -> Any:
+        """
+        處理 Sprints 值，支援數字和單選格式的 fallback
+        
+        Args:
+            sprints_value: 原始 Sprints 值
+            record_id: 記錄 ID（用於日誌）
+            
+        Returns:
+            Any: 處理後的 Sprints 值
+        """
+        # 方法 1: 嘗試數字格式
+        try:
+            if isinstance(sprints_value, (int, float)):
+                numeric_sprints = sprints_value
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                numeric_sprints = int(float(sprints_value.strip()))
+            else:
+                numeric_sprints = None
+            
+            if numeric_sprints is not None:
+                self.logger.debug(f"Sprints 欄位使用數字格式: {record_id} -> {numeric_sprints}")
+                return numeric_sprints
+                
+        except (ValueError, TypeError):
+            self.logger.debug(f"Sprints 數字格式轉換失敗，嘗試單選格式: {record_id} -> {sprints_value}")
+        
+        # 方法 2: 如果數字格式失敗，嘗試單選格式
+        try:
+            # 將 sprints_value 轉換為字符串用於單選欄位
+            if isinstance(sprints_value, (int, float)):
+                single_select_value = str(sprints_value)
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                single_select_value = sprints_value.strip()
+            else:
+                single_select_value = None
+            
+            if single_select_value:
+                self.logger.debug(f"Sprints 欄位使用單選格式: {record_id} -> {single_select_value}")
+                return single_select_value
+                
+        except Exception as e:
+            self.logger.warning(f"Sprints 單選格式轉換也失敗: {record_id} -> {sprints_value}, 錯誤: {e}")
+        
+        # 如果兩種方法都失敗，返回原始值並記錄警告
+        self.logger.warning(f"Sprints 欄位兩種格式都失敗，使用原始值: {record_id} -> {sprints_value}")
+        return sprints_value
+
     def batch_update_records(self, obj_token: str, table_id: str, 
                            updates: List[Tuple[str, Dict[str, Any]]]) -> bool:
         """
-        批量更新記錄（自動分批處理）
+        批量更新記錄（自動分批處理，支援 Sprints 欄位 fallback）
         
         Args:
             obj_token: App token
@@ -373,16 +457,19 @@ class LarkRecordManager:
         """
         if not updates:
             return True
+        
+        # 預處理更新資料，處理 Sprints 欄位的 fallback
+        processed_updates = self._preprocess_updates_for_sprints(updates)
             
         # 動態計算批次大小（基於 fields 部分）
-        field_records = [fields for _, fields in updates]
+        field_records = [fields for _, fields in processed_updates]
         batch_size = self._calculate_dynamic_batch_size(field_records, max_size=500)
         
-        self.logger.info(f"使用動態批次大小 {batch_size} 處理 {len(updates)} 筆更新")
+        self.logger.info(f"使用動態批次大小 {batch_size} 處理 {len(processed_updates)} 筆更新")
         
         # 分批處理
-        for i in range(0, len(updates), batch_size):
-            batch = updates[i:i + batch_size]
+        for i in range(0, len(processed_updates), batch_size):
+            batch = processed_updates[i:i + batch_size]
             
             try:
                 token = self.auth_manager.get_tenant_access_token()
@@ -418,13 +505,13 @@ class LarkRecordManager:
                     self.logger.error(f"批次更新失敗: {result.get('msg')}")
                     return False
                 
-                self.logger.info(f"批次更新記錄 {i+1}-{i+len(batch)}/{len(updates)} 成功")
+                self.logger.info(f"批次更新記錄 {i+1}-{i+len(batch)}/{len(processed_updates)} 成功")
                 
             except Exception as e:
                 self.logger.error(f"批次更新異常: {e}")
                 return False
         
-        self.logger.info(f"成功批量更新 {len(updates)} 筆記錄")
+        self.logger.info(f"成功批量更新 {len(processed_updates)} 筆記錄")
         return True
     
     def batch_create_records(self, obj_token: str, table_id: str, 
