@@ -295,28 +295,115 @@ class LarkRecordManager:
         return all_records
     
     def create_record(self, obj_token: str, table_id: str, fields: Dict) -> Optional[str]:
-        """創建單筆記錄（支援 Sprints 欄位 fallback）"""
-        # 預處理欄位資料，處理 Sprints fallback
-        processed_fields = self._preprocess_fields_for_sprints(fields, "new_record")
-        
+        """創建單筆記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records"
+
+        # 檢查是否包含 Sprints 欄位
+        sprints_field = None
+        sprints_value = None
+        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+            if name in fields:
+                sprints_field = name
+                sprints_value = fields[name]
+                break
+
+        if sprints_field is None or sprints_value is None:
+            # 沒有 Sprints，直接送出
+            data = {'fields': fields}
+            result = self._make_request('POST', url, json=data)
+            if result:
+                record = result.get('record', {})
+                return record.get('record_id')
+            return None
+
+        # 針對 Sprints 準備兩種候選格式，依序嘗試
+        candidates: List[Any] = []
+        try:
+            if isinstance(sprints_value, (int, float)):
+                candidates.append(sprints_value)
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                candidates.append(int(float(sprints_value.strip())))
+        except Exception:
+            pass
+        if isinstance(sprints_value, (int, float)):
+            str_val = str(sprints_value)
+        elif isinstance(sprints_value, str) and sprints_value.strip():
+            str_val = sprints_value.strip()
+        else:
+            str_val = None
+        if str_val is not None and (len(candidates) == 0 or candidates[-1] != str_val):
+            candidates.append(str_val)
+
+        # 依序嘗試每一種格式
+        for idx, cand in enumerate(candidates):
+            pf = dict(fields)
+            pf[sprints_field] = cand
+            data = {'fields': self._preprocess_fields_for_sprints(pf, "new_record")}
+            result = self._make_request('POST', url, json=data)
+            if result:
+                record = result.get('record', {})
+                rid = record.get('record_id')
+                if rid:
+                    if idx > 0:
+                        self.logger.info(f"Sprints 首次寫入失敗，fallback 第 {idx+1} 次嘗試成功")
+                    return rid
         
-        data = {'fields': processed_fields}
+        # 兩種都失敗，最後用原始值再試一次（保險）
+        data = {'fields': self._preprocess_fields_for_sprints(fields, "new_record")}
         result = self._make_request('POST', url, json=data)
-        
         if result:
             record = result.get('record', {})
             return record.get('record_id')
         return None
     
     def update_record(self, obj_token: str, table_id: str, record_id: str, fields: Dict) -> bool:
-        """更新單筆記錄（支援 Sprints 欄位 fallback）"""
-        # 預處理欄位資料，處理 Sprints fallback
-        processed_fields = self._preprocess_fields_for_sprints(fields, record_id)
-        
+        """更新單筆記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/{record_id}"
-        
-        data = {'fields': processed_fields}
+
+        # 檢查是否包含 Sprints 欄位
+        sprints_field = None
+        sprints_value = None
+        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+            if name in fields:
+                sprints_field = name
+                sprints_value = fields[name]
+                break
+
+        if sprints_field is None or sprints_value is None:
+            data = {'fields': self._preprocess_fields_for_sprints(fields, record_id)}
+            result = self._make_request('PUT', url, json=data)
+            return result is not None
+
+        # 針對 Sprints 準備兩種候選格式，依序嘗試
+        candidates: List[Any] = []
+        try:
+            if isinstance(sprints_value, (int, float)):
+                candidates.append(sprints_value)
+            elif isinstance(sprints_value, str) and sprints_value.strip():
+                candidates.append(int(float(sprints_value.strip())))
+        except Exception:
+            pass
+        if isinstance(sprints_value, (int, float)):
+            str_val = str(sprints_value)
+        elif isinstance(sprints_value, str) and sprints_value.strip():
+            str_val = sprints_value.strip()
+        else:
+            str_val = None
+        if str_val is not None and (len(candidates) == 0 or candidates[-1] != str_val):
+            candidates.append(str_val)
+
+        for idx, cand in enumerate(candidates):
+            pf = dict(fields)
+            pf[sprints_field] = cand
+            data = {'fields': self._preprocess_fields_for_sprints(pf, record_id)}
+            result = self._make_request('PUT', url, json=data)
+            if result is not None:
+                if idx > 0:
+                    self.logger.info(f"Sprints 首次寫入失敗，fallback 第 {idx+1} 次嘗試成功")
+                return True
+
+        # 兩種都失敗，最後用原始值再試一次（保險）
+        data = {'fields': self._preprocess_fields_for_sprints(fields, record_id)}
         result = self._make_request('PUT', url, json=data)
         return result is not None
     
@@ -402,7 +489,8 @@ class LarkRecordManager:
     
     def _process_sprints_value_with_fallback(self, sprints_value: Any, record_id: str) -> Any:
         """
-        處理 Sprints 值，支援數字和單選格式的 fallback
+        處理 Sprints 值，支援數字格式和單選格式的 fallback
+        單選格式使用與 JIRA Status 相同的字串格式
         
         Args:
             sprints_value: 原始 Sprints 值
@@ -411,6 +499,9 @@ class LarkRecordManager:
         Returns:
             Any: 處理後的 Sprints 值
         """
+        if sprints_value is None or sprints_value == "":
+            return sprints_value
+            
         # 方法 1: 嘗試數字格式
         try:
             if isinstance(sprints_value, (int, float)):
@@ -427,9 +518,9 @@ class LarkRecordManager:
         except (ValueError, TypeError):
             self.logger.debug(f"Sprints 數字格式轉換失敗，嘗試單選格式: {record_id} -> {sprints_value}")
         
-        # 方法 2: 如果數字格式失敗，嘗試單選格式
+        # 方法 2: 如果數字格式失敗，使用單選格式（字串值，與 JIRA Status 相同）
         try:
-            # 將 sprints_value 轉換為字符串用於單選欄位
+            # 單選欄位格式就是簡單的字串值，與 JIRA Status 的 extract_nested 結果相同
             if isinstance(sprints_value, (int, float)):
                 single_select_value = str(sprints_value)
             elif isinstance(sprints_value, str) and sprints_value.strip():
@@ -534,15 +625,53 @@ class LarkRecordManager:
                 
                 url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_update"
                 response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
-                
+
+                def _retry_with_sprints_fallback(batch_items: List[Tuple[str, Dict[str, Any]]]) -> bool:
+                    fallback_batch: List[Tuple[str, Dict[str, Any]]] = []
+                    for record_id, fields in batch_items:
+                        new_fields = dict(fields)
+                        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                            if name in new_fields:
+                                v = new_fields[name]
+                                alt = None
+                                if isinstance(v, (int, float)):
+                                    alt = str(v)
+                                elif isinstance(v, str) and v.strip():
+                                    try:
+                                        alt = int(float(v.strip()))
+                                    except Exception:
+                                        alt = None
+                                if alt is not None:
+                                    new_fields[name] = alt
+                                break
+                        fallback_batch.append((record_id, new_fields))
+                    payload_fb = {
+                        'records': [
+                            {'record_id': rid, 'fields': flds}
+                            for rid, flds in fallback_batch
+                        ]
+                    }
+                    resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
+                    if resp2.status_code != 200:
+                        self.logger.error(f"批次更新 Fallback 失敗，HTTP {resp2.status_code}: {resp2.text}")
+                        return False
+                    res2 = resp2.json()
+                    if res2.get('code') != 0:
+                        self.logger.error(f"批次更新 Fallback 失敗: {res2.get('msg')}")
+                        return False
+                    self.logger.info("批次更新 Fallback 重試成功")
+                    return True
+
                 if response.status_code != 200:
                     self.logger.error(f"批次更新失敗，HTTP {response.status_code}: {response.text}")
-                    return False
-                
-                result = response.json()
-                if result.get('code') != 0:
-                    self.logger.error(f"批次更新失敗: {result.get('msg')}")
-                    return False
+                    if not _retry_with_sprints_fallback(batch):
+                        return False
+                else:
+                    result = response.json()
+                    if result.get('code') != 0:
+                        self.logger.error(f"批次更新失敗: {result.get('msg')}")
+                        if not _retry_with_sprints_fallback(batch):
+                            return False
                 
                 self.logger.info(f"批次更新記錄 {i+1}-{i+len(batch)}/{len(processed_updates)} 成功")
                 
@@ -555,7 +684,7 @@ class LarkRecordManager:
     
     def batch_create_records(self, obj_token: str, table_id: str, 
                            records_data: List[Dict]) -> Tuple[bool, List[str], List[str]]:
-        """批次創建記錄（支援 Sprints 欄位 fallback）"""
+        """批次創建記錄（支援 Sprints 欄位寫入失敗時的重試 fallback）"""
         if not records_data:
             return True, [], []
         
@@ -590,14 +719,53 @@ class LarkRecordManager:
                 
                 url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_create"
                 response = requests.post(url, json=data, headers=headers, timeout=self.timeout)
-                
+
+                def _retry_create_with_sprints_fallback(batch_items: List[Dict]) -> Tuple[bool, List[str]]:
+                    fb_items: List[Dict] = []
+                    for item in batch_items:
+                        flds = dict(item)
+                        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                            if name in flds:
+                                v = flds[name]
+                                alt = None
+                                if isinstance(v, (int, float)):
+                                    alt = str(v)
+                                elif isinstance(v, str) and v.strip():
+                                    try:
+                                        alt = int(float(v.strip()))
+                                    except Exception:
+                                        alt = None
+                                if alt is not None:
+                                    flds[name] = alt
+                                break
+                        fb_items.append(flds)
+                    payload_fb = {'records': [{'fields': x} for x in fb_items]}
+                    resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
+                    if resp2.status_code != 200:
+                        return False, []
+                    res2 = resp2.json()
+                    if res2.get('code') != 0:
+                        return False, []
+                    data_section2 = res2.get('data', {})
+                    records2 = data_section2.get('records', [])
+                    ids2 = [rec.get('record_id') for rec in records2 if rec.get('record_id')]
+                    return True, ids2
+
                 if response.status_code != 200:
+                    ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
+                    if ok:
+                        success_ids.extend(ids_fb)
+                        continue
                     error_msg = f"批次創建失敗，HTTP {response.status_code}"
                     error_messages.append(error_msg)
                     continue
                 
                 result = response.json()
                 if result.get('code') != 0:
+                    ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
+                    if ok:
+                        success_ids.extend(ids_fb)
+                        continue
                     error_msg = f"批次創建失敗: {result.get('msg')}"
                     error_messages.append(error_msg)
                     # 記錄詳細的錯誤資訊，包含實際的欄位資料
@@ -605,7 +773,6 @@ class LarkRecordManager:
                     self.logger.error(f"失敗的資料筆數: {len(batch_data)}")
                     if batch_data and len(batch_data) > 0:
                         self.logger.error(f"第一筆資料的欄位: {list(batch_data[0].keys())}")
-                        # 記錄前 3 筆資料的詳細內容（如果有的話）
                         for i, record_data in enumerate(batch_data[:3]):
                             self.logger.error(f"第 {i+1} 筆資料內容: {record_data}")
                     continue

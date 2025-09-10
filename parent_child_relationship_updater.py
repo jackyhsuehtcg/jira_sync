@@ -629,7 +629,7 @@ class ParentChildRelationshipUpdater:
                 
                 print(f"  處理批次 {batch_num + 1}/{total_batches} ({len(current_batch)} 筆記錄)")
                 
-                success = self._execute_batch_update(obj_token, table_id, current_batch)
+                success = self._execute_batch_update(obj_token, table_id, current_batch, sprints_field)
                 if success:
                     self.stats['successful_updates'] += len(current_batch)
                     print(f"    ✓ 批次 {batch_num + 1} 更新成功")
@@ -646,8 +646,9 @@ class ParentChildRelationshipUpdater:
             return False
     
     def _execute_batch_update(self, obj_token: str, table_id: str, 
-                            batch_updates: List[Tuple[str, Dict]]) -> bool:
-        """執行單一批次的更新"""
+                            batch_updates: List[Tuple[str, Dict]],
+                            sprints_field: str = None) -> bool:
+        """執行單一批次的更新，支援 Sprints 寫入失敗時的格式 fallback 重試"""
         try:
             url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_update"
             headers = {
@@ -663,7 +664,8 @@ class ParentChildRelationshipUpdater:
                 })
             
             data = {"records": records}
-            
+
+            # 第一次嘗試
             response = requests.post(url, json=data, headers=headers)
             if response.status_code == 200:
                 result = response.json()
@@ -671,9 +673,67 @@ class ParentChildRelationshipUpdater:
                     return True
                 else:
                     print(f"    ✗ 批次更新 API 失敗: {result.get('msg', 'Unknown error')}")
+                    # 嘗試 fallback：若指定了 Sprints 欄位，改用另一種格式重試一次
+                    if sprints_field:
+                        print("    ↻ 嘗試將 Sprints 欄位改用另一種格式後重試一次…")
+                        fallback_records = []
+                        for record in records:
+                            flds = dict(record["fields"])  # 淺拷貝
+                            if sprints_field in flds:
+                                v = flds[sprints_field]
+                                alt = None
+                                if isinstance(v, (int, float)):
+                                    alt = str(v)
+                                elif isinstance(v, str) and v.strip():
+                                    try:
+                                        alt = int(float(v.strip()))
+                                    except Exception:
+                                        alt = None
+                                if alt is not None:
+                                    flds[sprints_field] = alt
+                            fallback_records.append({
+                                "record_id": record["record_id"],
+                                "fields": flds
+                            })
+                        fallback_data = {"records": fallback_records}
+                        response2 = requests.post(url, json=fallback_data, headers=headers)
+                        if response2.status_code == 200 and response2.json().get("code") == 0:
+                            print("    ✓ Fallback 重試成功")
+                            return True
+                        else:
+                            print("    ✗ Fallback 重試仍失敗")
                     return False
             else:
                 print(f"    ✗ HTTP 錯誤: {response.status_code}")
+                # 嘗試 fallback：若指定了 Sprints 欄位，改用另一種格式重試一次
+                if sprints_field:
+                    print("    ↻ 嘗試將 Sprints 欄位改用另一種格式後重試一次…")
+                    fallback_records = []
+                    for record in records:
+                        flds = dict(record["fields"])  # 淺拷貝
+                        if sprints_field in flds:
+                            v = flds[sprints_field]
+                            alt = None
+                            if isinstance(v, (int, float)):
+                                alt = str(v)
+                            elif isinstance(v, str) and v.strip():
+                                try:
+                                    alt = int(float(v.strip()))
+                                except Exception:
+                                    alt = None
+                            if alt is not None:
+                                flds[sprints_field] = alt
+                        fallback_records.append({
+                            "record_id": record["record_id"],
+                            "fields": flds
+                        })
+                    fallback_data = {"records": fallback_records}
+                    response2 = requests.post(url, json=fallback_data, headers=headers)
+                    if response2.status_code == 200 and response2.json().get("code") == 0:
+                        print("    ✓ Fallback 重試成功")
+                        return True
+                    else:
+                        print("    ✗ Fallback 重試仍失敗")
                 return False
                 
         except Exception as e:
@@ -699,15 +759,15 @@ class ParentChildRelationshipUpdater:
 
     def validate_sprints_field(self, table_fields: List[Dict[str, Any]], 
                             sprints_field: str) -> bool:
-        """驗證 Sprints 欄位是否存在且為數字欄位"""
+        """驗證 Sprints 欄位是否存在，且允許數字或單選欄位"""
         for field in table_fields:
             if field.get("field_name") == sprints_field:
                 field_type = field.get("ui_type")
-                if field_type == "Number":
+                if field_type in ("Number", "SingleSelect"):
                     print(f"✓ 找到 Sprints 欄位: {sprints_field} ({field_type})")
                     return True
                 else:
-                    print(f"✗ 欄位 {sprints_field} 不是數字欄位 (類型: {field_type})")
+                    print(f"✗ 欄位 {sprints_field} 類型不支援 (類型: {field_type})，僅支援 Number 或 SingleSelect")
                     return False
         
         print(f"✗ 未找到欄位: {sprints_field}")
