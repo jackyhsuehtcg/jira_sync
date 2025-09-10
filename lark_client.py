@@ -295,10 +295,13 @@ class LarkRecordManager:
         return all_records
     
     def create_record(self, obj_token: str, table_id: str, fields: Dict) -> Optional[str]:
-        """創建單筆記錄"""
+        """創建單筆記錄（支援 Sprints 欄位 fallback）"""
+        # 預處理欄位資料，處理 Sprints fallback
+        processed_fields = self._preprocess_fields_for_sprints(fields, "new_record")
+        
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records"
         
-        data = {'fields': fields}
+        data = {'fields': processed_fields}
         result = self._make_request('POST', url, json=data)
         
         if result:
@@ -307,10 +310,13 @@ class LarkRecordManager:
         return None
     
     def update_record(self, obj_token: str, table_id: str, record_id: str, fields: Dict) -> bool:
-        """更新單筆記錄"""
+        """更新單筆記錄（支援 Sprints 欄位 fallback）"""
+        # 預處理欄位資料，處理 Sprints fallback
+        processed_fields = self._preprocess_fields_for_sprints(fields, record_id)
+        
         url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/{record_id}"
         
-        data = {'fields': fields}
+        data = {'fields': processed_fields}
         result = self._make_request('PUT', url, json=data)
         return result is not None
     
@@ -442,6 +448,39 @@ class LarkRecordManager:
         self.logger.warning(f"Sprints 欄位兩種格式都失敗，使用原始值: {record_id} -> {sprints_value}")
         return sprints_value
 
+    
+    def _preprocess_fields_for_sprints(self, fields: Dict[str, Any], record_id: str) -> Dict[str, Any]:
+        """
+        為單筆記錄預處理欄位，支援 Sprints 欄位 fallback
+        
+        Args:
+            fields: 原始欄位字典
+            record_id: 記錄 ID（用於日誌）
+            
+        Returns:
+            Dict[str, Any]: 處理後的欄位字典
+        """
+        processed_fields = fields.copy()
+        
+        # 檢查是否有 Sprints 欄位需要處理
+        sprints_field_names = ['Sprints', 'Sprint', 'sprints', 'sprint']
+        sprints_field = None
+        sprints_value = None
+        
+        # 找到 Sprints 欄位
+        for field_name in sprints_field_names:
+            if field_name in processed_fields:
+                sprints_field = field_name
+                sprints_value = processed_fields[field_name]
+                break
+        
+        # 如果找到 Sprints 欄位，應用 fallback 邏輯
+        if sprints_field and sprints_value is not None:
+            processed_sprints_value = self._process_sprints_value_with_fallback(sprints_value, record_id)
+            processed_fields[sprints_field] = processed_sprints_value
+        
+        return processed_fields
+
     def batch_update_records(self, obj_token: str, table_id: str, 
                            updates: List[Tuple[str, Dict[str, Any]]]) -> bool:
         """
@@ -516,17 +555,23 @@ class LarkRecordManager:
     
     def batch_create_records(self, obj_token: str, table_id: str, 
                            records_data: List[Dict]) -> Tuple[bool, List[str], List[str]]:
-        """批次創建記錄"""
+        """批次創建記錄（支援 Sprints 欄位 fallback）"""
         if not records_data:
             return True, [], []
+        
+        # 預處理記錄資料，處理 Sprints fallback
+        processed_records_data = []
+        for i, record_fields in enumerate(records_data):
+            processed_fields = self._preprocess_fields_for_sprints(record_fields, f"new_record_{i}")
+            processed_records_data.append(processed_fields)
         
         max_batch_size = 500
         success_ids = []
         error_messages = []
         
         # 分批處理
-        for i in range(0, len(records_data), max_batch_size):
-            batch_data = records_data[i:i + max_batch_size]
+        for i in range(0, len(processed_records_data), max_batch_size):
+            batch_data = processed_records_data[i:i + max_batch_size]
             
             try:
                 token = self.auth_manager.get_tenant_access_token()
