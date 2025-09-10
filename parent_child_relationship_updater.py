@@ -837,10 +837,15 @@ class ParentChildRelationshipUpdater:
         if not self.validate_parent_field(table_fields, parent_field):
             return {"success": False, "error": f"父子關係欄位 {parent_field} 驗證失敗"}
         
-        # 驗證 Sprints 欄位 (如果指定)
+        # 驗證 Sprints 欄位 (如果指定) 並取得欄位型別
+        sprints_ui_type = None
         if sprints_field:
             if not self.validate_sprints_field(table_fields, sprints_field):
                 return {"success": False, "error": f"Sprints 欄位 {sprints_field} 驗證失敗"}
+            for f in table_fields:
+                if f.get("field_name") == sprints_field:
+                    sprints_ui_type = f.get("ui_type")
+                    break
         
         # 自動識別第一欄(票據號碼欄位)
         field_info = self.get_primary_field_info(table_fields)
