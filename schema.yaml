@@ -95,6 +95,9 @@ field_mappings:
     lark_field: "Project Type"
     processor: "extract_nested"
     nested_path: "value"
+  "customfield_11701":
+    lark_field: "Workdays"
+    processor: "extract_simple"
   customfield_test_comments:
     lark_field: Test Comments Field
     processor: extract_simple
