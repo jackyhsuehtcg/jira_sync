@@ -55,6 +55,9 @@ field_mappings:
     lark_field: "Linked Issues"
     processor: "extract_links_filtered"
     field_type: "multiselect"
+  "issuelinks_tcg":
+    lark_field: "Linked TCG"
+    processor: "extract_tcg_links"
 
   # 自定義欄位
   "customfield_10404":

@@ -249,11 +249,21 @@ class FieldProcessor:
             lark_field = config['lark_field']
             processor = config['processor']
             
+            # 如果 lark_field 是列表，使用第一個（對於多欄位場景）
+            # 在實際同步中會根據可用欄位動態選擇，這裡預設使用第一個
+            if isinstance(lark_field, list):
+                lark_field = lark_field[0] if lark_field else None
+                if lark_field is None:
+                    continue
+            
             try:
                 # 從 JIRA 資料中提取原始值
                 # 特殊處理 key 欄位，它在 raw_issue 頂層而不在 fields 中
                 if jira_field == 'key':
                     raw_value = raw_issue.get('key')
+                # 特殊處理虛擬欄位 issuelinks_tcg，映射到 issuelinks 資料
+                elif jira_field == 'issuelinks_tcg':
+                    raw_value = issue_fields.get('issuelinks')
                 else:
                     raw_value = self._extract_raw_value(issue_fields, jira_field, issue_key)
                 
@@ -341,6 +351,8 @@ class FieldProcessor:
                 return self._extract_links(raw_value, config)
             elif processor == "extract_links_filtered":
                 return self._extract_links_filtered(raw_value, issue_key, config)
+            elif processor == "extract_tcg_links":
+                return self._extract_tcg_links(raw_value, issue_key, config)
             elif processor == "extract_ticket_link":
                 return self._extract_ticket_link(raw_value)
             else:
@@ -751,6 +763,46 @@ class FieldProcessor:
         
         return result_keys
     
+    def _extract_tcg_links(self, links_array: Any, issue_key: str, config: Dict[str, Any] = None) -> Optional[str]:
+        """
+        提取只有 TCG 相關的 linked issues，返回逗號分隔的 TCG 單號
+        
+        Args:
+            links_array: JIRA issuelinks 陣列
+            issue_key: 當前 issue 的 key
+            config: 欄位配置（可選）
+            
+        Returns:
+            Optional[str]: 逗號分隔的 TCG 單號（如 "TCG-1001, TCG-1002"），如果沒有則返回 None
+        """
+        if not links_array:
+            return None
+        
+        if not isinstance(links_array, list):
+            return None
+        
+        tcg_tickets = []
+        for link in links_array:
+            if isinstance(link, dict):
+                outward = link.get('outwardIssue', {})
+                inward = link.get('inwardIssue', {})
+                
+                # 檢查 outward 連結是否為 TCG
+                if outward and outward.get('key'):
+                    outward_key = outward['key']
+                    if self._get_issue_key_prefix(outward_key) == 'TCG':
+                        tcg_tickets.append(outward_key)
+                
+                # 檢查 inward 連結是否為 TCG
+                if inward and inward.get('key'):
+                    inward_key = inward['key']
+                    if self._get_issue_key_prefix(inward_key) == 'TCG':
+                        tcg_tickets.append(inward_key)
+        
+        # 去重並用逗號分隔
+        unique_tickets = list(dict.fromkeys(tcg_tickets))  # 保持原有順序去重
+        return ', '.join(unique_tickets) if unique_tickets else None
+    
     def _extract_ticket_link(self, value: Any) -> Optional[str]:
         """
         將 JIRA Issue Key 轉換為超連結格式，支援多種輸入格式
@@ -808,6 +860,7 @@ class FieldProcessor:
             "extract_versions",
             "extract_links",
             "extract_links_filtered",
+            "extract_tcg_links",
             "extract_ticket_link"
         ]
     

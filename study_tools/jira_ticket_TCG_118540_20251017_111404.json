@@ -1,0 +1,13 @@
+{
+  "timestamp": "2025-10-17T11:14:04.792671",
+  "ticket_count": 1,
+  "ticket": {
+    "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+    "id": "572992",
+    "self": "https://jira.tc-gaming.co/jira/rest/api/2/issue/572992",
+    "key": "TCG-118540",
+    "fields": {
+      "customfield_11701": 0.5
+    }
+  }
+}

@@ -527,6 +527,69 @@ class LarkClient:
 - `temp/test_direct_table_access.py`: 新增直接存取測試工具
 - `CLAUDE.md`: 記錄測試結果和實作建議
 
+### 8. 多欄位映射支援：Linked TCG 過濾器 ✅ (已完成)
+
+**需求描述**:
+- 將 JIRA issuelinks 資料同時映射到多個 Lark 欄位
+- 新增「Linked TCG」欄位，只放 TCG 相關的 linked issues
+- 格式為文字（換行符分隔），支援展示連結類型和 JIRA URL
+
+**解決方案**:
+
+新增虛擬欄位配置和專用處理器，支援多欄位映射同一 JIRA 資料源：
+
+```yaml
+# schema.yaml 配置
+"issuelinks":
+  lark_field: "Linked Issues"
+  processor: "extract_links_filtered"
+  field_type: "multiselect"
+"issuelinks_tcg":                    # 虛擬欄位，映射到 issuelinks 資料
+  lark_field: "Linked TCG"
+  processor: "extract_tcg_links"
+```
+
+**修改檔案**:
+- `schema.yaml`: 新增 `issuelinks_tcg` 虛擬欄位配置
+- `field_processor.py`: 
+  - 新增 `_extract_tcg_links()` 方法
+  - 在 `_process_single_issue_with_mappings()` 中支援虛擬欄位映射
+  - 在 `_apply_processor()` 中添加 `extract_tcg_links` 處理器
+  - 在 `get_supported_processors()` 中添加新處理器
+
+**功能特色**:
+- **虛擬欄位映射**: 支援 `issuelinks_tcg` 自動映射到 `issuelinks` 資料源
+- **前綴過濾**: `extract_tcg_links` 只返回前綴為 TCG 的 linked issues
+- **簡潔格式**: 返回格式為逗號分隔的 TCG 單號（如 `"TCG-1001, TCG-1002, TCG-1003"`）
+- **去重處理**: 不重複列出相同的 TCG ticket，保持原有順序
+
+**測試驗證**:
+```python
+# 測試資料含多種 linked issues
+test_links = [
+    {'outwardIssue': {'key': 'TCG-1001'}},      # ✅ 包含在 Linked TCG
+    {'outwardIssue': {'key': 'TP-2001'}},       # ❌ 排除
+    {'inwardIssue': {'key': 'TCG-1002'}},       # ✅ 包含在 Linked TCG
+    {'outwardIssue': {'key': 'ICR-3001'}},      # ❌ 排除
+    {'outwardIssue': {'key': 'TCG-1001'}},      # ✅ 重複去除
+]
+
+# 結果驗證
+linked_tcg = processor._extract_tcg_links(test_links, 'ICR-123')
+# 結果: "TCG-1001, TCG-1002"
+```
+
+**使用範例**:
+```python
+# 在同步過程中，相同的 issuelinks 資料會被處理兩次：
+# 1. issuelinks → extract_links_filtered → Linked Issues (多選格式，所有連結)
+# 2. issuelinks_tcg → extract_tcg_links → Linked TCG (逗號分隔單號，只有 TCG)
+
+# Lark 表格結果
+# Linked Issues: ['TCG-1001', 'TP-2001', 'ICR-3001', 'TCG-1002']
+# Linked TCG: "TCG-1001, TCG-1002"
+```
+
 ## ⚠️ 已知問題記錄
 
 ### 問題 1: user_id_fixer 邏輯問題 🔴 (待修復)
@@ -584,6 +647,7 @@ class LarkClient:
 | 2025-07-14 | v1.3 | 直接多維表格存取支援：測試並驗證 app token 直接存取能力 | Claude |
 | 2025-07-14 | v1.4 | 問題記錄：user_id_fixer 邏輯問題、Cache Rebuild 邏輯問題 | Claude |
 | 2025-07-17 | v1.5 | Issue Links 多選欄位支援：將文字格式改為多選，支援雙模式 | Claude |
+| 2025-11-04 | v1.6 | 多欄位映射支援：Linked TCG 過濾器實作，支援虛擬欄位 | Claude |
 
 ---
 
