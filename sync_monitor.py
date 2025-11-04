@@ -424,7 +424,7 @@ class SyncMonitor:
         curses.doupdate()
 
     def _draw_status_panel(self, stdscr, start_y: int, height: int, width: int):
-        """繪製狀態面板"""
+        """繪製狀態面板（橫向排版）"""
         if not self.tables:
             try:
                 stdscr.addstr(start_y + 1, 2, "沒有啟用的表格", curses.color_pair(7))
@@ -432,12 +432,17 @@ class SyncMonitor:
                 pass
             return
 
-        # 計算每個表格的顯示行數
-        table_count = len(self.tables)
-        available_height = height - 1
-
+        # 第一行：團隊狀態概覽（橫向排列）
         y = start_y
+        x = 0
+        col_width = 20  # 每個團隊佔用的寬度
+        
         for idx, (key, table_info) in enumerate(self.tables.items()):
+            if x + col_width > width:
+                # 換到下一行
+                y += 1
+                x = 0
+            
             if y >= start_y + height:
                 break
 
@@ -449,55 +454,59 @@ class SyncMonitor:
             status_color = table_info.status.get_color()
 
             # 暫停標記
-            pause_mark = " [PAUSED]" if table_info.paused else ""
+            pause_mark = "[P]" if table_info.paused else "   "
 
-            # 基本資訊
-            info_line = f" {status_symbol} {key}{pause_mark}"
-
-            # 時間資訊
-            if table_info.last_sync_time:
-                last_sync = datetime.fromtimestamp(table_info.last_sync_time).strftime("%H:%M:%S")
-            else:
-                last_sync = "---"
-
-            if table_info.next_sync_time:
-                next_sync = datetime.fromtimestamp(table_info.next_sync_time).strftime("%H:%M:%S")
-                remaining = int(table_info.next_sync_time - time.time())
-                if remaining < 0:
-                    remaining = 0
-                time_info = f"上次:{last_sync} 下次:{next_sync} (剩餘:{remaining}s)"
-            else:
-                time_info = f"上次:{last_sync}"
-
-            # 統計資訊
-            stats = f"成功:{table_info.sync_count} 失敗:{table_info.error_count}"
+            # 縮短顯示格式：符號 team.table [P] 狀態
+            display_text = f"{status_symbol} {key} {pause_mark}"
+            display_text = display_text[:col_width-1].ljust(col_width-1)
 
             # 繪製
             try:
-                # 基本資訊行
                 attr = curses.A_REVERSE if is_selected else curses.A_NORMAL
-                stdscr.addstr(y, 0, info_line[:width-1].ljust(width-1),
-                            curses.color_pair(status_color) | attr)
-                y += 1
-
-                # 時間資訊行
-                if y < start_y + height:
-                    stdscr.addstr(y, 2, time_info[:width-3], curses.color_pair(7))
-                    y += 1
-
-                # 統計資訊行
-                if y < start_y + height:
-                    stdscr.addstr(y, 2, stats[:width-3], curses.color_pair(7))
-                    y += 1
-
-                # 錯誤資訊
-                if table_info.last_error and y < start_y + height:
-                    error_text = f"錯誤: {table_info.last_error}"
-                    stdscr.addstr(y, 2, error_text[:width-3], curses.color_pair(1))
-                    y += 1
-
+                stdscr.addstr(y, x, display_text, curses.color_pair(status_color) | attr)
+                x += col_width
             except:
                 pass
+
+        # 詳細信息行：顯示當前選中表格的詳細信息
+        y += 1
+        if y < start_y + height:
+            current_table = self._get_current_table()
+            if current_table:
+                # 時間資訊
+                if current_table.last_sync_time:
+                    last_sync = datetime.fromtimestamp(current_table.last_sync_time).strftime("%H:%M:%S")
+                else:
+                    last_sync = "---"
+
+                if current_table.next_sync_time:
+                    next_sync = datetime.fromtimestamp(current_table.next_sync_time).strftime("%H:%M:%S")
+                    remaining = int(current_table.next_sync_time - time.time())
+                    if remaining < 0:
+                        remaining = 0
+                    time_info = f"上次:{last_sync} 下次:{next_sync} (剩餘:{remaining}s)"
+                else:
+                    time_info = f"上次:{last_sync}"
+
+                # 統計資訊
+                stats = f"成功:{current_table.sync_count} 失敗:{current_table.error_count}"
+                
+                # 詳細信息
+                detail_text = f"[{current_table.key}] {time_info} | {stats}"
+                
+                try:
+                    stdscr.addstr(y, 0, detail_text[:width-1].ljust(width-1), curses.color_pair(7))
+                except:
+                    pass
+                
+                # 錯誤信息
+                y += 1
+                if current_table.last_error and y < start_y + height:
+                    error_text = f"錯誤: {current_table.last_error}"
+                    try:
+                        stdscr.addstr(y, 2, error_text[:width-3], curses.color_pair(1))
+                    except:
+                        pass
 
     def _draw_log_panel(self, stdscr, start_y: int, height: int, width: int):
         """繪製日誌面板"""
