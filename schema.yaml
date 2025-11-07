@@ -4,7 +4,18 @@
 field_mappings:
   # 基本欄位
   "key":
-    lark_field: ["Issue Key", "TCG Tickets", "Ticket Number", "Issue", "Ticket", "Key", "JIRA Key", "JIRA Issue", "Issue Number"]
+    lark_field:
+      [
+        "Issue Key",
+        "TCG Tickets",
+        "Ticket Number",
+        "Issue",
+        "Ticket",
+        "Key",
+        "JIRA Key",
+        "JIRA Issue",
+        "Issue Number",
+      ]
     processor: "extract_ticket_link"
   "summary":
     lark_field: "Title"
@@ -100,6 +111,12 @@ field_mappings:
     nested_path: "value"
   "customfield_11701":
     lark_field: "Workdays"
+    processor: "extract_simple"
+  "customfield_11702":
+    lark_field: "QA"
+    processor: "extract_user"
+  "customfield_11703":
+    lark_field: "QA Workdays"
     processor: "extract_simple"
   customfield_test_comments:
     lark_field: Test Comments Field
