@@ -20,6 +20,9 @@ field_mappings:
   "summary":
     lark_field: "Title"
     processor: "extract_simple"
+  "description":
+    lark_field: "Description"
+    processor: "extract_simple"
   "status":
     lark_field: "JIRA Status"
     processor: "extract_nested"
