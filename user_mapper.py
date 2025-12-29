@@ -15,6 +15,7 @@
 import logging
 from typing import Dict, Any, Optional, Set
 from datetime import datetime
+from functools import lru_cache
 from logger import ModuleLogger
 from user_cache_manager import UserCacheManager
 
@@ -48,6 +49,7 @@ class UserMapper:
         
         self.logger.info("用戶映射器初始化完成（重構版）")
     
+    @lru_cache(maxsize=1000)
     def extract_username_from_jira_email(self, jira_identifier: str) -> Optional[str]:
         """
         從 JIRA email 或 username 提取用戶名
@@ -68,6 +70,7 @@ class UserMapper:
             # 如果不包含 @ 符號，說明已經是 username，直接返回
             return jira_identifier.strip()
     
+    @lru_cache(maxsize=2000)
     def find_lark_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         """
         通過用戶名查找 Lark 用戶 - 快取優先，非阻塞模式

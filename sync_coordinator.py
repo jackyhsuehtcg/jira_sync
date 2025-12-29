@@ -237,7 +237,7 @@ class SyncCoordinator:
     
     def sync_team(self, team_name: str, full_update: bool = False) -> Dict[str, Any]:
         """
-        同步指定團隊
+        同步指定團隊（並行處理版）
         
         Args:
             team_name: 團隊名稱
@@ -249,7 +249,7 @@ class SyncCoordinator:
         start_time = time.time()
         
         try:
-            self.logger.info(f"開始團隊同步: {team_name}")
+            self.logger.info(f"開始團隊同步 (並行): {team_name}")
             
             # 獲取團隊配置
             team_config = self._get_team_sync_config(team_name)
@@ -265,14 +265,20 @@ class SyncCoordinator:
             # 獲取工作流管理器
             workflow_manager = self._get_workflow_manager(team_name, team_config)
             
-            # 同步所有啟用的表格
+            # 並行同步所有啟用的表格
             table_results = {}
             successful_tables = 0
             failed_tables = 0
             
-            for table_info in team_config.enabled_tables:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+            
+            lock = threading.Lock()
+            
+            def _process_table_sync(table_info):
+                """同步單一表格的內部函數"""
                 table_name = table_info['name']
-                table_key = table_info['table_name']  # 使用正確的配置鍵
+                table_key = table_info['table_name']
                 table_id = table_info['table_id']
                 jql_query = table_info['jql_query']
                 
@@ -289,21 +295,39 @@ class SyncCoordinator:
                     )
                     
                     # 執行同步
-                    sync_result = workflow_manager.execute_sync_workflow(workflow_config)
-                    table_results[table_name] = sync_result
+                    result = workflow_manager.execute_sync_workflow(workflow_config)
+                    return table_name, result, None
                     
-                    if sync_result.success:
-                        successful_tables += 1
-                    else:
-                        failed_tables += 1
-                        
                 except Exception as e:
-                    self.logger.error(f"表格 {table_name} 同步失敗: {e}")
-                    failed_tables += 1
-                    table_results[table_name] = {
-                        'success': False,
-                        'error': str(e)
-                    }
+                    return table_name, None, str(e)
+            
+            # 使用保守的並行數，避免同時觸發過多 JIRA/Lark 請求
+            # 這裡的 max_workers 控制的是"同時同步的表格數"
+            max_workers = 3
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_table = {
+                    executor.submit(_process_table_sync, table_info): table_info 
+                    for table_info in team_config.enabled_tables
+                }
+                
+                for future in as_completed(future_to_table):
+                    table_name, sync_result, error = future.result()
+                    
+                    with lock:
+                        if error:
+                            self.logger.error(f"表格 {table_name} 同步失敗: {error}")
+                            failed_tables += 1
+                            table_results[table_name] = {
+                                'success': False,
+                                'error': error
+                            }
+                        else:
+                            table_results[table_name] = sync_result
+                            if sync_result.success:
+                                successful_tables += 1
+                            else:
+                                failed_tables += 1
             
             # 生成團隊結果
             team_result = {

@@ -147,7 +147,7 @@ class SyncBatchProcessor:
     
     def _batch_process_fields(self, sync_operations: List[SyncOperation], filtered_field_mappings: Dict[str, Any] = None, available_fields: List[str] = None) -> List[SyncOperation]:
         """
-        批次處理欄位轉換
+        批次處理欄位轉換（並行處理版）
         
         Args:
             sync_operations: 同步操作列表
@@ -165,23 +165,48 @@ class SyncBatchProcessor:
         
         try:
             # 準備批次資料
+            # 我們需要保留 issue_key 到 operation 的映射以便後續組裝
+            # op_map removed (unused)
             raw_issues_dict = {op.issue_key: op.jira_issue for op in sync_operations}
             
-            # 批次欄位處理
-            if filtered_field_mappings is not None:
-                if available_fields is not None:
-                    # 使用動態票據欄位處理
-                    # excluded_fields 已在 filtered_field_mappings 中處理過了
-                    processed_issues = self.field_processor.process_issues_with_dynamic_ticket_field(
-                        raw_issues_dict, filtered_field_mappings, available_fields
-                    )
+            processed_issues = {}
+            
+            # 為了提高效率，我們將大的批次拆分成小塊並行處理
+            # 雖然 FieldProcessor 本身是 CPU 密集的，但其中可能包含 User Mapping (IO)
+            chunk_size = 20
+            issue_keys = list(raw_issues_dict.keys())
+            chunks = [issue_keys[i:i + chunk_size] for i in range(0, len(issue_keys), chunk_size)]
+            
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+            
+            lock = threading.Lock()
+            
+            def _process_chunk(keys_chunk):
+                chunk_dict = {k: raw_issues_dict[k] for k in keys_chunk}
+                if filtered_field_mappings is not None:
+                    if available_fields is not None:
+                        return self.field_processor.process_issues_with_dynamic_ticket_field(
+                            chunk_dict, filtered_field_mappings, available_fields
+                        )
+                    else:
+                        return self.field_processor.process_issues_with_mappings(chunk_dict, filtered_field_mappings)
                 else:
-                    # 使用過濾後的欄位映射
-                    # excluded_fields 已在 filtered_field_mappings 中處理過了
-                    processed_issues = self.field_processor.process_issues_with_mappings(raw_issues_dict, filtered_field_mappings)
-            else:
-                # 使用原始欄位映射
-                processed_issues = self.field_processor.process_issues(raw_issues_dict)
+                    return self.field_processor.process_issues(chunk_dict)
+
+            # 使用較多的 worker 因為這裡主要是 CPU 和輕量 IO
+            max_workers = 5
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_chunk = {executor.submit(_process_chunk, chunk): chunk for chunk in chunks}
+                
+                for future in as_completed(future_to_chunk):
+                    try:
+                        chunk_result = future.result()
+                        with lock:
+                            processed_issues.update(chunk_result)
+                    except Exception as e:
+                        self.logger.error(f"欄位處理分塊失敗: {e}")
             
             # 更新操作物件
             processed_operations = []
@@ -204,7 +229,7 @@ class SyncBatchProcessor:
                 user_stats = self.user_mapper.report_pending_users()
                 self.stats['user_mapping_stats']['pending_users'] = user_stats.get('pending_users_found', 0)
             
-            self.logger.info(f"批次欄位處理完成: {len(processed_operations)} 筆")
+            self.logger.info(f"批次欄位處理完成 (並行): {len(processed_operations)} 筆")
             
             return processed_operations
             

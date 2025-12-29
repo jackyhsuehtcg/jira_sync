@@ -15,7 +15,7 @@ import time
 import traceback
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -25,6 +25,7 @@ import yaml
 
 class SyncStatus(Enum):
     """同步狀態枚舉"""
+
     IDLE = "idle"
     SYNCING = "syncing"
     SUCCESS = "success"
@@ -34,11 +35,11 @@ class SyncStatus(Enum):
     def get_color(self) -> int:
         """獲取對應的顏色對"""
         return {
-            SyncStatus.IDLE: 8,      # 白色
-            SyncStatus.SYNCING: 4,   # 黃色
-            SyncStatus.SUCCESS: 2,   # 綠色
-            SyncStatus.FAILED: 1,    # 紅色
-            SyncStatus.PAUSED: 7,    # 灰色
+            SyncStatus.IDLE: 8,  # 白色
+            SyncStatus.SYNCING: 4,  # 黃色
+            SyncStatus.SUCCESS: 2,  # 綠色
+            SyncStatus.FAILED: 1,  # 紅色
+            SyncStatus.PAUSED: 7,  # 灰色
         }.get(self, 8)
 
     def get_symbol(self) -> str:
@@ -55,6 +56,7 @@ class SyncStatus(Enum):
 @dataclass
 class TableInfo:
     """表格資訊"""
+
     team: str
     table: str
     table_id: str
@@ -122,6 +124,9 @@ class SyncMonitor:
         self.current_table_index = 0
         self.should_exit = False
         self.sync_tasks: Dict[str, asyncio.Task] = {}
+        self.global_pause = False
+        self.cleanup_in_progress = False
+        self.last_cleanup_date = None
 
         # 畫面配置
         self.status_height_ratio = 0.33
@@ -136,30 +141,32 @@ class SyncMonitor:
     def _load_config(self) -> bool:
         """加載配置檔案"""
         try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
 
             # 獲取預設同步間隔
-            default_interval = config.get('global', {}).get('default_sync_interval', 300)
+            default_interval = config.get("global", {}).get(
+                "default_sync_interval", 300
+            )
 
             # 解析團隊配置
-            teams = config.get('teams', {})
+            teams = config.get("teams", {})
             new_tables = {}
 
             for team_name, team_config in teams.items():
-                if not team_config.get('enabled', True):
+                if not team_config.get("enabled", True):
                     continue
 
-                team_interval = team_config.get('sync_interval', default_interval)
-                wiki_token = team_config.get('wiki_token', '')
+                team_interval = team_config.get("sync_interval", default_interval)
+                wiki_token = team_config.get("wiki_token", "")
 
-                tables = team_config.get('tables', {})
+                tables = team_config.get("tables", {})
                 for table_name, table_config in tables.items():
-                    if not table_config.get('enabled', True):
+                    if not table_config.get("enabled", True):
                         continue
 
-                    table_interval = table_config.get('sync_interval', team_interval)
-                    table_id = table_config.get('table_id', '')
+                    table_interval = table_config.get("sync_interval", team_interval)
+                    table_id = table_config.get("table_id", "")
 
                     key = f"{team_name}.{table_name}"
 
@@ -180,7 +187,7 @@ class SyncMonitor:
                             sync_count=existing.sync_count,
                             error_count=existing.error_count,
                             last_error=existing.last_error,
-                            logs=existing.logs
+                            logs=existing.logs,
                         )
                     else:
                         # 新表格，設定為立即同步（使用較早的時間確保立即觸發）
@@ -190,7 +197,7 @@ class SyncMonitor:
                             table_id=table_id,
                             wiki_token=wiki_token,
                             sync_interval=table_interval,
-                            next_sync_time=0  # 設為 0 確保立即開始第一次同步
+                            next_sync_time=0,  # 設為 0 確保立即開始第一次同步
                         )
 
             self.tables = new_tables
@@ -206,11 +213,102 @@ class SyncMonitor:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.global_logs.append(f"[{timestamp}] [{level}] {message}")
 
+    def _get_taiwan_now(self) -> datetime:
+        """取得台灣時間"""
+        return datetime.now(timezone(timedelta(hours=8)))
+
+    def _set_global_pause(self, paused: bool):
+        """設置全局暫停狀態"""
+        self.global_pause = paused
+        if not paused:
+            for table in self.tables.values():
+                if table.status == SyncStatus.PAUSED and not table.paused:
+                    table.status = SyncStatus.IDLE
+
+    async def _wait_for_running_syncs(self):
+        """等待所有同步完成"""
+        while not self.should_exit:
+            running = [
+                t for t in self.tables.values() if t.status == SyncStatus.SYNCING
+            ]
+            if not running:
+                return
+            await asyncio.sleep(1)
+
+    async def _run_table_scan_cleaner(self) -> bool:
+        """執行 table_scan_cleaner.py"""
+        try:
+            cmd = [sys.executable, "table_scan_cleaner.py", "--no-confirm"]
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=os.path.dirname(os.path.abspath(__file__)),
+            )
+
+            async def read_stream(stream, log_level):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    line_text = line.decode("utf-8").strip()
+                    if line_text:
+                        self._add_global_log(line_text, log_level)
+
+            await asyncio.gather(
+                read_stream(process.stdout, "INFO"),
+                read_stream(process.stderr, "ERROR"),
+                process.wait(),
+            )
+
+            return process.returncode == 0
+
+        except Exception as e:
+            self._add_global_log(f"執行清理命令失敗: {e}", "ERROR")
+            return False
+
+    async def _run_daily_cleanup(self, cleanup_date):
+        """執行每日清理流程"""
+        try:
+            self.cleanup_in_progress = True
+            self.last_cleanup_date = cleanup_date
+            self._add_global_log("到達每日清理時間，暫停同步中...", "INFO")
+            self._set_global_pause(True)
+
+            await self._wait_for_running_syncs()
+            self._add_global_log("同步已完成，開始執行清理...", "INFO")
+
+            success = await self._run_table_scan_cleaner()
+            if success:
+                self._add_global_log("清理完成，恢復同步", "INFO")
+            else:
+                self._add_global_log("清理失敗，恢復同步", "ERROR")
+
+        finally:
+            self._set_global_pause(False)
+            self.cleanup_in_progress = False
+
+    async def _watch_daily_cleanup(self):
+        """監控每日清理時間（台灣時間 00:00）"""
+        while not self.should_exit:
+            now = self._get_taiwan_now()
+            if now.hour == 0 and now.minute == 0:
+                today = now.date()
+                if self.last_cleanup_date != today and not self.cleanup_in_progress:
+                    await self._run_daily_cleanup(today)
+            await asyncio.sleep(1)
+
     async def _sync_table(self, table_info: TableInfo):
         """同步單一表格"""
         key = table_info.key
 
         while not self.should_exit:
+            # 全局暫停（清理中）
+            if self.global_pause and not table_info.paused:
+                table_info.status = SyncStatus.PAUSED
+                await asyncio.sleep(1)
+                continue
+
             # 檢查是否暫停
             if table_info.paused:
                 table_info.status = SyncStatus.PAUSED
@@ -219,7 +317,10 @@ class SyncMonitor:
 
             # 檢查是否到達同步時間
             current_time = time.time()
-            if table_info.next_sync_time is None or current_time < table_info.next_sync_time:
+            if (
+                table_info.next_sync_time is None
+                or current_time < table_info.next_sync_time
+            ):
                 await asyncio.sleep(0.1)  # 減少檢查間隔到 0.1 秒，提高並行響應速度
                 continue
 
@@ -240,7 +341,9 @@ class SyncMonitor:
 
                     table_info.status = SyncStatus.SUCCESS
                     table_info.sync_count += 1
-                    table_info.add_log(f"同步成功 (第 {table_info.sync_count} 次)", "INFO")
+                    table_info.add_log(
+                        f"同步成功 (第 {table_info.sync_count} 次)", "INFO"
+                    )
                     self._add_global_log(f"{key} 同步成功", "INFO")
                 else:
                     raise Exception("同步失敗")
@@ -254,9 +357,13 @@ class SyncMonitor:
 
             # 更新同步時間
             table_info.last_sync_time = time.time()
-            table_info.next_sync_time = table_info.last_sync_time + table_info.sync_interval
+            table_info.next_sync_time = (
+                table_info.last_sync_time + table_info.sync_interval
+            )
 
-            next_time_str = datetime.fromtimestamp(table_info.next_sync_time).strftime("%H:%M:%S")
+            next_time_str = datetime.fromtimestamp(table_info.next_sync_time).strftime(
+                "%H:%M:%S"
+            )
             table_info.add_log(f"下次同步: {next_time_str}", "INFO")
 
     async def _run_main_sync(self, table_info: TableInfo) -> bool:
@@ -266,15 +373,17 @@ class SyncMonitor:
                 sys.executable,
                 "main.py",
                 "sync",
-                "--team", table_info.team,
-                "--table", table_info.table
+                "--team",
+                table_info.team,
+                "--table",
+                table_info.table,
             ]
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=os.path.dirname(os.path.abspath(__file__))
+                cwd=os.path.dirname(os.path.abspath(__file__)),
             )
 
             # 即時讀取輸出 - 創建兩個任務分別讀取 stdout 和 stderr
@@ -284,7 +393,7 @@ class SyncMonitor:
                     line = await stream.readline()
                     if not line:
                         break
-                    line_text = line.decode('utf-8').strip()
+                    line_text = line.decode("utf-8").strip()
                     if line_text:
                         table_info.add_log(line_text, log_level)
 
@@ -292,7 +401,7 @@ class SyncMonitor:
             await asyncio.gather(
                 read_stream(process.stdout, "INFO"),
                 read_stream(process.stderr, "ERROR"),
-                process.wait()
+                process.wait(),
             )
 
             return process.returncode == 0
@@ -309,17 +418,20 @@ class SyncMonitor:
             cmd = [
                 sys.executable,
                 "parent_child_relationship_updater.py",
-                "--url", lark_url,
-                "--parent-field", "Parent Tickets",
-                "--sprints-field", "Sprints",
-                "--execute"
+                "--url",
+                lark_url,
+                "--parent-field",
+                "Parent Tickets",
+                "--sprints-field",
+                "Sprints",
+                "--execute",
             ]
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=os.path.dirname(os.path.abspath(__file__))
+                cwd=os.path.dirname(os.path.abspath(__file__)),
             )
 
             # 即時讀取輸出
@@ -329,7 +441,7 @@ class SyncMonitor:
                     line = await stream.readline()
                     if not line:
                         break
-                    line_text = line.decode('utf-8').strip()
+                    line_text = line.decode("utf-8").strip()
                     if line_text:
                         table_info.add_log(line_text, log_level)
 
@@ -337,7 +449,7 @@ class SyncMonitor:
             await asyncio.gather(
                 read_stream(process.stdout, "INFO"),
                 read_stream(process.stderr, "ERROR"),
-                process.wait()
+                process.wait(),
             )
 
             return process.returncode == 0
@@ -396,7 +508,12 @@ class SyncMonitor:
         # 繪製標題
         title = "JIRA-Lark 多團隊同步監控系統"
         try:
-            stdscr.addstr(0, (width - len(title)) // 2, title, curses.A_BOLD | curses.color_pair(6))
+            stdscr.addstr(
+                0,
+                (width - len(title)) // 2,
+                title,
+                curses.A_BOLD | curses.color_pair(6),
+            )
         except:
             pass
 
@@ -415,7 +532,7 @@ class SyncMonitor:
         # 繪製幫助信息
         help_text = "Q:退出 | ←→:切換表格 | P:暫停/恢復 | R:重新加載配置"
         try:
-            stdscr.addstr(height - 1, 0, help_text[:width-1], curses.color_pair(7))
+            stdscr.addstr(height - 1, 0, help_text[: width - 1], curses.color_pair(7))
         except:
             pass
 
@@ -436,18 +553,18 @@ class SyncMonitor:
         y = start_y
         x = 0
         col_width = 20  # 每個團隊佔用的寬度
-        
+
         for idx, (key, table_info) in enumerate(self.tables.items()):
             if x + col_width > width:
                 # 換到下一行
                 y += 1
                 x = 0
-            
+
             if y >= start_y + height:
                 break
 
             # 高亮當前選中的表格
-            is_selected = (idx == self.current_table_index)
+            is_selected = idx == self.current_table_index
 
             # 狀態符號和顏色
             status_symbol = table_info.status.get_symbol()
@@ -458,12 +575,14 @@ class SyncMonitor:
 
             # 縮短顯示格式：符號 team.table [P] 狀態
             display_text = f"{status_symbol} {key} {pause_mark}"
-            display_text = display_text[:col_width-1].ljust(col_width-1)
+            display_text = display_text[: col_width - 1].ljust(col_width - 1)
 
             # 繪製
             try:
                 attr = curses.A_REVERSE if is_selected else curses.A_NORMAL
-                stdscr.addstr(y, x, display_text, curses.color_pair(status_color) | attr)
+                stdscr.addstr(
+                    y, x, display_text, curses.color_pair(status_color) | attr
+                )
                 x += col_width
             except:
                 pass
@@ -475,12 +594,16 @@ class SyncMonitor:
             if current_table:
                 # 時間資訊
                 if current_table.last_sync_time:
-                    last_sync = datetime.fromtimestamp(current_table.last_sync_time).strftime("%H:%M:%S")
+                    last_sync = datetime.fromtimestamp(
+                        current_table.last_sync_time
+                    ).strftime("%H:%M:%S")
                 else:
                     last_sync = "---"
 
                 if current_table.next_sync_time:
-                    next_sync = datetime.fromtimestamp(current_table.next_sync_time).strftime("%H:%M:%S")
+                    next_sync = datetime.fromtimestamp(
+                        current_table.next_sync_time
+                    ).strftime("%H:%M:%S")
                     remaining = int(current_table.next_sync_time - time.time())
                     if remaining < 0:
                         remaining = 0
@@ -489,22 +612,31 @@ class SyncMonitor:
                     time_info = f"上次:{last_sync}"
 
                 # 統計資訊
-                stats = f"成功:{current_table.sync_count} 失敗:{current_table.error_count}"
-                
+                stats = (
+                    f"成功:{current_table.sync_count} 失敗:{current_table.error_count}"
+                )
+
                 # 詳細信息
                 detail_text = f"[{current_table.key}] {time_info} | {stats}"
-                
+
                 try:
-                    stdscr.addstr(y, 0, detail_text[:width-1].ljust(width-1), curses.color_pair(7))
+                    stdscr.addstr(
+                        y,
+                        0,
+                        detail_text[: width - 1].ljust(width - 1),
+                        curses.color_pair(7),
+                    )
                 except:
                     pass
-                
+
                 # 錯誤信息
                 y += 1
                 if current_table.last_error and y < start_y + height:
                     error_text = f"錯誤: {current_table.last_error}"
                     try:
-                        stdscr.addstr(y, 2, error_text[:width-3], curses.color_pair(1))
+                        stdscr.addstr(
+                            y, 2, error_text[: width - 3], curses.color_pair(1)
+                        )
                     except:
                         pass
 
@@ -521,7 +653,9 @@ class SyncMonitor:
             logs = list(self.global_logs)
 
         try:
-            stdscr.addstr(start_y, 2, log_title[:width-3], curses.A_BOLD | curses.color_pair(6))
+            stdscr.addstr(
+                start_y, 2, log_title[: width - 3], curses.A_BOLD | curses.color_pair(6)
+            )
         except:
             pass
 
@@ -548,7 +682,12 @@ class SyncMonitor:
                     color = curses.color_pair(8)
 
                 try:
-                    stdscr.addstr(start_y + 1 + i, 0, log_line[:width-1].ljust(width-1), color)
+                    stdscr.addstr(
+                        start_y + 1 + i,
+                        0,
+                        log_line[: width - 1].ljust(width - 1),
+                        color,
+                    )
                 except:
                     pass
 
@@ -567,19 +706,23 @@ class SyncMonitor:
                     continue
 
                 # Q: 退出
-                if key in (ord('q'), ord('Q')):
+                if key in (ord("q"), ord("Q")):
                     self.should_exit = True
                     break
 
                 # 左右鍵: 切換表格
                 elif key == curses.KEY_LEFT:
                     if self.tables:
-                        self.current_table_index = (self.current_table_index - 1) % len(self.tables)
+                        self.current_table_index = (self.current_table_index - 1) % len(
+                            self.tables
+                        )
                         self.log_offset = 0
 
                 elif key == curses.KEY_RIGHT:
                     if self.tables:
-                        self.current_table_index = (self.current_table_index + 1) % len(self.tables)
+                        self.current_table_index = (self.current_table_index + 1) % len(
+                            self.tables
+                        )
                         self.log_offset = 0
 
                 # 上下鍵: 捲動日誌
@@ -590,7 +733,7 @@ class SyncMonitor:
                     self.log_offset = max(0, self.log_offset - 1)
 
                 # P: 暫停/恢復當前表格
-                elif key in (ord('p'), ord('P')):
+                elif key in (ord("p"), ord("P")):
                     current_table = self._get_current_table()
                     if current_table:
                         current_table.paused = not current_table.paused
@@ -598,7 +741,7 @@ class SyncMonitor:
                         self._add_global_log(f"{current_table.key} 已{status}", "INFO")
 
                 # R: 重新加載配置
-                elif key in (ord('r'), ord('R')):
+                elif key in (ord("r"), ord("R")):
                     self._add_global_log("手動重新加載配置...", "INFO")
                     if self._load_config():
                         await self._restart_sync_tasks()
@@ -615,14 +758,14 @@ class SyncMonitor:
         curses.use_default_colors()
 
         # 定義顏色對
-        curses.init_pair(1, curses.COLOR_RED, -1)      # 錯誤/失敗
-        curses.init_pair(2, curses.COLOR_GREEN, -1)    # 成功
-        curses.init_pair(3, curses.COLOR_BLUE, -1)     # 藍色
-        curses.init_pair(4, curses.COLOR_YELLOW, -1)   # 警告/同步中
+        curses.init_pair(1, curses.COLOR_RED, -1)  # 錯誤/失敗
+        curses.init_pair(2, curses.COLOR_GREEN, -1)  # 成功
+        curses.init_pair(3, curses.COLOR_BLUE, -1)  # 藍色
+        curses.init_pair(4, curses.COLOR_YELLOW, -1)  # 警告/同步中
         curses.init_pair(5, curses.COLOR_MAGENTA, -1)  # 品紅
-        curses.init_pair(6, curses.COLOR_CYAN, -1)     # 青色/標題
-        curses.init_pair(7, curses.COLOR_WHITE, -1)    # 白色/灰色
-        curses.init_pair(8, -1, -1)                    # 預設
+        curses.init_pair(6, curses.COLOR_CYAN, -1)  # 青色/標題
+        curses.init_pair(7, curses.COLOR_WHITE, -1)  # 白色/灰色
+        curses.init_pair(8, -1, -1)  # 預設
 
         # 隱藏游標
         curses.curs_set(0)
@@ -634,6 +777,9 @@ class SyncMonitor:
 
         # 啟動配置監控
         config_task = asyncio.create_task(self._watch_config())
+
+        # 啟動每日清理監控
+        cleanup_task = asyncio.create_task(self._watch_daily_cleanup())
 
         # 啟動輸入處理
         input_task = asyncio.create_task(self._handle_input(stdscr))
@@ -651,12 +797,19 @@ class SyncMonitor:
 
         # 清理
         config_task.cancel()
+        cleanup_task.cancel()
         input_task.cancel()
         for task in self.sync_tasks.values():
             task.cancel()
 
         # 等待所有任務結束
-        await asyncio.gather(config_task, input_task, *self.sync_tasks.values(), return_exceptions=True)
+        await asyncio.gather(
+            config_task,
+            cleanup_task,
+            input_task,
+            *self.sync_tasks.values(),
+            return_exceptions=True,
+        )
 
     def run(self, stdscr):
         """運行主循環 (curses 入口)"""

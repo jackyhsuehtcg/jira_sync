@@ -305,6 +305,7 @@ class SyncWorkflowManager:
     def _fetch_jira_issues(self, config: SyncWorkflowConfig) -> List[Dict[str, Any]]:
         """
         獲取 JIRA Issues
+        支援 JQL 增量過濾
         
         Args:
             config: 同步工作流配置
@@ -313,14 +314,38 @@ class SyncWorkflowManager:
             JIRA Issues 列表
         """
         try:
-            self.logger.info(f"獲取 JIRA 資料: {config.jql_query}")
+            jql_query = config.jql_query
+            
+            # JQL 增量過濾邏輯
+            if not config.is_single_issue_mode and config.enable_cold_start_detection:
+                # 嘗試獲取上次同步時間
+                last_sync_time = self.sync_state_manager.get_last_sync_time(config.table_id)
+                
+                if last_sync_time:
+                    # 回推 10 分鐘作為緩衝 (600,000 毫秒)
+                    buffer_ms = 600 * 1000
+                    query_start_time = last_sync_time - buffer_ms
+                    
+                    # 格式化為 JIRA JQL 時間格式 (yyyy/MM/dd HH:mm)
+                    dt = datetime.fromtimestamp(query_start_time / 1000)
+                    time_str = dt.strftime('%Y/%m/%d %H:%M')
+                    
+                    # 安全地追加時間過濾條件
+                    condition = f"updated >= '{time_str}'"
+                    jql_query = self._inject_jql_condition(config.jql_query, condition)
+                    
+                    self.logger.info(f"啟用 JQL 增量過濾: {jql_query}")
+                else:
+                    self.logger.info("未找到上次同步時間，執行全量查詢")
+            
+            self.logger.info(f"獲取 JIRA 資料: {jql_query}")
             
             # 獲取 schema 中定義的必要欄位（性能優化）
             required_fields = self.field_processor.get_required_jira_fields()
             
             # 使用 JIRA 客戶端獲取資料，只獲取必要欄位
             jira_issues = self.jira_client.search_issues(
-                jql=config.jql_query,
+                jql=jql_query,
                 fields=required_fields
             )
             
@@ -336,6 +361,40 @@ class SyncWorkflowManager:
         except Exception as e:
             self.logger.error(f"獲取 JIRA 資料失敗: {e}")
             return []
+            
+    def _inject_jql_condition(self, jql: str, condition: str) -> str:
+        """
+        將條件安全地插入 JQL，處理 ORDER BY 子句
+        
+        Args:
+            jql: 原始 JQL
+            condition: 要插入的條件 (e.g. "updated >= '...'")
+            
+        Returns:
+            修改後的 JQL
+        """
+        import re
+        
+        # 使用正則表達式尋找最後一個 ORDER BY，不區分大小寫
+        # 這裡假設 ORDER BY 是頂層子句
+        # rsplit 的邏輯比較難用 re 實現，我們用 finditer 找最後一個匹配
+        
+        pattern = re.compile(r'\s+ORDER\s+BY\s+', re.IGNORECASE)
+        matches = list(pattern.finditer(jql))
+        
+        if matches:
+            last_match = matches[-1]
+            start_idx = last_match.start()
+            
+            main_part = jql[:start_idx]
+            order_by_part = jql[start_idx:]
+            
+            # 確保 main_part 被括號包圍，以保證邏輯正確
+            # 但如果 main_part 已經是完整邏輯，加括號是安全的
+            return f"({main_part}) AND {condition} {order_by_part}"
+        else:
+            # 沒有 ORDER BY
+            return f"({jql}) AND {condition}"
     
     def _handle_cold_start(self, config: SyncWorkflowConfig) -> bool:
         """

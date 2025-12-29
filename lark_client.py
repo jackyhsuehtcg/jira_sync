@@ -211,52 +211,87 @@ class LarkRecordManager:
         self.max_page_size = 500
     
     def _make_request(self, method: str, url: str, **kwargs) -> Optional[Dict]:
-        """統一的 HTTP 請求方法"""
-        try:
-            token = self.auth_manager.get_tenant_access_token()
-            if not token:
-                self.logger.error("無法獲取 Access Token")
-                return None
-            
-            headers = kwargs.pop('headers', {})
-            headers.update({
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json'
-            })
-            
-            response = requests.request(
-                method, url, 
-                headers=headers, 
-                timeout=self.timeout,
-                **kwargs
-            )
-            
-            if response.status_code != 200:
-                self.logger.error(f"API 請求失敗，HTTP {response.status_code}: {response.text}")
-                return None
-            
-            result = response.json()
-            
-            if result.get('code') != 0:
-                error_msg = result.get('msg', 'Unknown error')
-                self.logger.error(f"API 請求失敗: {error_msg}")
-                # 如果是 FieldNameNotFound 錯誤，嘗試提取更多資訊
-                if 'FieldNameNotFound' in error_msg or 'field' in error_msg.lower():
-                    self.logger.error(f"API 完整回應: {result}")
-                    self.logger.error(f"請求 URL: {url}")
-                    self.logger.error(f"請求方法: {method}")
-                    if method in ['POST', 'PUT'] and 'json' in kwargs:
-                        request_data = kwargs.get('json', {})
-                        if 'fields' in request_data:
-                            self.logger.error(f"請求的欄位列表: {list(request_data['fields'].keys())}")
-                            self.logger.error(f"請求的欄位資料: {request_data['fields']}")
-                return None
-            
-            return result.get('data', {})
-            
-        except Exception as e:
-            self.logger.error(f"API 請求異常: {e}")
-            return None
+        """
+        統一的 HTTP 請求方法，包含自動重試機制
+        處理 429 Too Many Requests 和 Lark 特有的限流錯誤碼
+        """
+        max_retries = 3
+        base_wait_time = 2  # 基礎等待時間 2 秒
+        
+        for attempt in range(max_retries + 1):
+            try:
+                token = self.auth_manager.get_tenant_access_token()
+                if not token:
+                    self.logger.error("無法獲取 Access Token")
+                    return None
+                
+                headers = kwargs.pop('headers', {})
+                headers.update({
+                    'Authorization': f'Bearer {token}',
+                    'Content-Type': 'application/json'
+                })
+                
+                # 複製 kwargs 以免影響下一次重試
+                current_kwargs = kwargs.copy()
+                
+                response = requests.request(
+                    method, url, 
+                    headers=headers, 
+                    timeout=self.timeout,
+                    **current_kwargs
+                )
+                
+                # 處理 HTTP 429 限流
+                if response.status_code == 429:
+                    # 嘗試從 header 獲取等待時間，預設為指數退避
+                    retry_after = int(response.headers.get('Retry-After', base_wait_time * (2 ** attempt)))
+                    self.logger.warning(f"觸發 Lark API 限流 (HTTP 429)，等待 {retry_after} 秒後重試 ({attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(retry_after)
+                    continue
+                
+                if response.status_code != 200:
+                    self.logger.error(f"API 請求失敗，HTTP {response.status_code}: {response.text}")
+                    return None
+                
+                result = response.json()
+                
+                # 處理 Lark 業務邏輯限流 (Code 99991400, 99991401)
+                if result.get('code') in [99991400, 99991401]:
+                    wait_time = base_wait_time * (2 ** attempt)
+                    self.logger.warning(f"觸發 Lark 業務限流 (Code {result.get('code')})，等待 {wait_time} 秒後重試 ({attempt + 1}/{max_retries})")
+                    import time
+                    time.sleep(wait_time)
+                    continue
+                
+                if result.get('code') != 0:
+                    error_msg = result.get('msg', 'Unknown error')
+                    self.logger.error(f"API 請求失敗: {error_msg}")
+                    # 如果是 FieldNameNotFound 錯誤，嘗試提取更多資訊
+                    if 'FieldNameNotFound' in error_msg or 'field' in error_msg.lower():
+                        self.logger.error(f"API 完整回應: {result}")
+                        self.logger.error(f"請求 URL: {url}")
+                        self.logger.error(f"請求方法: {method}")
+                        if method in ['POST', 'PUT'] and 'json' in current_kwargs:
+                            request_data = current_kwargs.get('json', {})
+                            if 'fields' in request_data:
+                                self.logger.error(f"請求的欄位列表: {list(request_data['fields'].keys())}")
+                                self.logger.error(f"請求的欄位資料: {request_data['fields']}")
+                    return None
+                
+                return result.get('data', {})
+                
+            except Exception as e:
+                self.logger.error(f"API 請求異常: {e}")
+                if attempt < max_retries:
+                    wait_time = base_wait_time * (2 ** attempt)
+                    self.logger.warning(f"請求發生異常，等待 {wait_time} 秒後重試: {e}")
+                    import time
+                    time.sleep(wait_time)
+                else:
+                    return None
+        
+        return None
     
     def get_all_records(self, obj_token: str, table_id: str) -> List[Dict]:
         """
@@ -650,15 +685,8 @@ class LarkRecordManager:
     def batch_update_records(self, obj_token: str, table_id: str, 
                            updates: List[Tuple[str, Dict[str, Any]]], sprints_ui_type: Optional[str] = None) -> bool:
         """
-        批量更新記錄（自動分批處理，支援 Sprints 欄位 fallback）
-        
-        Args:
-            obj_token: App token
-            table_id: 表格 ID
-            updates: 更新列表，每個元素為 (record_id, fields) 元組
-            
-        Returns:
-            bool: 更新成功返回 True
+        批量更新記錄（並行處理版）
+        自動分批處理，支援 Sprints 欄位 fallback
         """
         if not updates:
             return True
@@ -672,10 +700,19 @@ class LarkRecordManager:
         
         self.logger.info(f"使用動態批次大小 {batch_size} 處理 {len(processed_updates)} 筆更新")
         
-        # 分批處理
+        # 準備批次
+        batches = []
         for i in range(0, len(processed_updates), batch_size):
-            batch = processed_updates[i:i + batch_size]
+            batches.append(processed_updates[i:i + batch_size])
             
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+        
+        # 執行緒安全的狀態標記
+        overall_success = True
+        lock = threading.Lock()
+        
+        def _process_batch_update(batch_data):
             try:
                 token = self.auth_manager.get_tenant_access_token()
                 if not token:
@@ -694,72 +731,108 @@ class LarkRecordManager:
                             'record_id': record_id,
                             'fields': fields
                         }
-                        for record_id, fields in batch
+                        for record_id, fields in batch_data
                     ]
                 }
                 
                 url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_update"
-                response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
-
-                def _retry_with_sprints_fallback(batch_items: List[Tuple[str, Dict[str, Any]]]) -> bool:
-                    fallback_batch: List[Tuple[str, Dict[str, Any]]] = []
-                    for record_id, fields in batch_items:
-                        new_fields = dict(fields)
-                        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
-                            if name in new_fields:
-                                v = new_fields[name]
-                                alt = None
-                                if isinstance(v, (int, float)):
-                                    alt = str(v)
-                                elif isinstance(v, str) and v.strip():
-                                    try:
-                                        alt = int(float(v.strip()))
-                                    except Exception:
-                                        alt = None
-                                if alt is not None:
-                                    new_fields[name] = alt
-                                break
-                        fallback_batch.append((record_id, new_fields))
-                    payload_fb = {
-                        'records': [
-                            {'record_id': rid, 'fields': flds}
-                            for rid, flds in fallback_batch
-                        ]
-                    }
-                    resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
-                    if resp2.status_code != 200:
-                        self.logger.error(f"批次更新 Fallback 失敗，HTTP {resp2.status_code}: {resp2.text}")
-                        return False
-                    res2 = resp2.json()
-                    if res2.get('code') != 0:
-                        self.logger.error(f"批次更新 Fallback 失敗: {res2.get('msg')}")
-                        return False
-                    self.logger.info("批次更新 Fallback 重試成功")
-                    return True
-
-                if response.status_code != 200:
-                    self.logger.error(f"批次更新失敗，HTTP {response.status_code}: {response.text}")
-                    if not _retry_with_sprints_fallback(batch):
-                        return False
-                else:
-                    result = response.json()
-                    if result.get('code') != 0:
-                        self.logger.error(f"批次更新失敗: {result.get('msg')}")
-                        if not _retry_with_sprints_fallback(batch):
-                            return False
                 
-                self.logger.info(f"批次更新記錄 {i+1}-{i+len(batch)}/{len(processed_updates)} 成功")
+                # 手動重試機制
+                retry_count = 3
+                for attempt in range(retry_count):
+                    response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)
+                    
+                    if response.status_code == 429:
+                        import time
+                        wait_time = int(response.headers.get('Retry-After', 2))
+                        time.sleep(wait_time)
+                        continue
+                    
+                    # 內部 fallback 函數
+                    def _retry_with_sprints_fallback(batch_items: List[Tuple[str, Dict[str, Any]]]) -> bool:
+                        fallback_batch: List[Tuple[str, Dict[str, Any]]] = []
+                        for record_id, fields in batch_items:
+                            new_fields = dict(fields)
+                            for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                                if name in new_fields:
+                                    v = new_fields[name]
+                                    alt = None
+                                    if isinstance(v, (int, float)):
+                                        alt = str(v)
+                                    elif isinstance(v, str) and v.strip():
+                                        try:
+                                            alt = int(float(v.strip()))
+                                        except Exception:
+                                            alt = None
+                                    if alt is not None:
+                                        new_fields[name] = alt
+                                    break
+                            fallback_batch.append((record_id, new_fields))
+                        payload_fb = {
+                            'records': [
+                                {'record_id': rid, 'fields': flds}
+                                for rid, flds in fallback_batch
+                            ]
+                        }
+                        resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
+                        if resp2.status_code != 200:
+                            return False
+                        res2 = resp2.json()
+                        if res2.get('code') != 0:
+                            return False
+                        return True
+
+                    if response.status_code != 200:
+                        if not _retry_with_sprints_fallback(batch_data):
+                            self.logger.error(f"批次更新失敗，HTTP {response.status_code}: {response.text}")
+                            return False
+                        return True
+                    
+                    result = response.json()
+                    
+                    if result.get('code') in [99991400, 99991401]:
+                         import time
+                         time.sleep(2 * (attempt + 1))
+                         continue
+                         
+                    if result.get('code') != 0:
+                        if not _retry_with_sprints_fallback(batch_data):
+                            self.logger.error(f"批次更新失敗: {result.get('msg')}")
+                            return False
+                        return True
+                    
+                    # 成功
+                    return True
+                
+                return False
                 
             except Exception as e:
                 self.logger.error(f"批次更新異常: {e}")
                 return False
+                
+        # 使用保守的並行數
+        max_workers = 3
         
-        self.logger.info(f"成功批量更新 {len(processed_updates)} 筆記錄")
-        return True
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_batch = {executor.submit(_process_batch_update, batch): batch for batch in batches}
+            
+            for future in as_completed(future_to_batch):
+                success = future.result()
+                if not success:
+                    with lock:
+                        overall_success = False
+        
+        if overall_success:
+            self.logger.info(f"成功批量更新 {len(processed_updates)} 筆記錄 (並行)")
+            
+        return overall_success
     
     def batch_create_records(self, obj_token: str, table_id: str, 
                            records_data: List[Dict], sprints_ui_type: Optional[str] = None) -> Tuple[bool, List[str], List[str]]:
-        """批次創建記錄（優先依據 Sprints 欄位屬性決定格式，必要時才 fallback）"""
+        """
+        批次創建記錄（並行處理版）
+        優先依據 Sprints 欄位屬性決定格式，必要時才 fallback
+        """
         if not records_data:
             return True, [], []
         
@@ -773,15 +846,23 @@ class LarkRecordManager:
         success_ids = []
         error_messages = []
         
-        # 分批處理
+        # 準備批次任務
+        batches = []
         for i in range(0, len(processed_records_data), max_batch_size):
-            batch_data = processed_records_data[i:i + max_batch_size]
+            batches.append(processed_records_data[i:i + max_batch_size])
             
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
+        
+        # 執行緒安全的結果收集
+        lock = threading.Lock()
+        
+        def _process_batch_create(batch_data):
+            """處理單一批次的創建"""
             try:
                 token = self.auth_manager.get_tenant_access_token()
                 if not token:
-                    error_messages.append("無法獲取 Access Token")
-                    continue
+                    return False, [], ["無法獲取 Access Token"]
                 
                 headers = {
                     'Authorization': f'Bearer {token}',
@@ -793,76 +874,103 @@ class LarkRecordManager:
                 data = {'records': records}
                 
                 url = f"{self.base_url}/bitable/v1/apps/{obj_token}/tables/{table_id}/records/batch_create"
-                response = requests.post(url, json=data, headers=headers, timeout=self.timeout)
-
-                def _retry_create_with_sprints_fallback(batch_items: List[Dict]) -> Tuple[bool, List[str]]:
-                    fb_items: List[Dict] = []
-                    for item in batch_items:
-                        flds = dict(item)
-                        for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
-                            if name in flds:
-                                v = flds[name]
-                                alt = None
-                                if isinstance(v, (int, float)):
-                                    alt = str(v)
-                                elif isinstance(v, str) and v.strip():
-                                    try:
-                                        alt = int(float(v.strip()))
-                                    except Exception:
-                                        alt = None
-                                if alt is not None:
-                                    flds[name] = alt
-                                break
-                        fb_items.append(flds)
-                    payload_fb = {'records': [{'fields': x} for x in fb_items]}
-                    resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
-                    if resp2.status_code != 200:
-                        return False, []
-                    res2 = resp2.json()
-                    if res2.get('code') != 0:
-                        return False, []
-                    data_section2 = res2.get('data', {})
-                    records2 = data_section2.get('records', [])
-                    ids2 = [rec.get('record_id') for rec in records2 if rec.get('record_id')]
-                    return True, ids2
-
-                if response.status_code != 200:
-                    ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
-                    if ok:
-                        success_ids.extend(ids_fb)
+                
+                # 手動重試機制 (這裡不使用 _make_request 因為需要特殊的 fallback 邏輯)
+                retry_count = 3
+                for attempt in range(retry_count):
+                    response = requests.post(url, json=data, headers=headers, timeout=self.timeout)
+                    
+                    if response.status_code == 429:
+                        import time
+                        wait_time = int(response.headers.get('Retry-After', 2))
+                        time.sleep(wait_time)
                         continue
-                    error_msg = f"批次創建失敗，HTTP {response.status_code}"
-                    error_messages.append(error_msg)
-                    continue
-                
-                result = response.json()
-                if result.get('code') != 0:
-                    ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
-                    if ok:
-                        success_ids.extend(ids_fb)
+                        
+                    # 內部 fallback 邏輯函數
+                    def _retry_create_with_sprints_fallback(batch_items: List[Dict]) -> Tuple[bool, List[str]]:
+                        fb_items: List[Dict] = []
+                        for item in batch_items:
+                            flds = dict(item)
+                            for name in ['Sprints', 'Sprint', 'sprints', 'sprint']:
+                                if name in flds:
+                                    v = flds[name]
+                                    alt = None
+                                    if isinstance(v, (int, float)):
+                                        alt = str(v)
+                                    elif isinstance(v, str) and v.strip():
+                                        try:
+                                            alt = int(float(v.strip()))
+                                        except Exception:
+                                            alt = None
+                                    if alt is not None:
+                                        flds[name] = alt
+                                    break
+                            fb_items.append(flds)
+                        payload_fb = {'records': [{'fields': x} for x in fb_items]}
+                        resp2 = requests.post(url, json=payload_fb, headers=headers, timeout=self.timeout)
+                        if resp2.status_code != 200:
+                            return False, []
+                        res2 = resp2.json()
+                        if res2.get('code') != 0:
+                            return False, []
+                        data_section2 = res2.get('data', {})
+                        records2 = data_section2.get('records', [])
+                        ids2 = [rec.get('record_id') for rec in records2 if rec.get('record_id')]
+                        return True, ids2
+
+                    if response.status_code != 200:
+                        # 嘗試 fallback
+                        ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
+                        if ok:
+                            return True, ids_fb, []
+                        return False, [], [f"批次創建失敗，HTTP {response.status_code}"]
+                    
+                    result = response.json()
+                    
+                    # 處理 Lark 限流錯誤碼
+                    if result.get('code') in [99991400, 99991401]:
+                        import time
+                        time.sleep(2 * (attempt + 1))
                         continue
-                    error_msg = f"批次創建失敗: {result.get('msg')}"
-                    error_messages.append(error_msg)
-                    # 記錄詳細的錯誤資訊，包含實際的欄位資料
-                    self.logger.error(f"批次創建失敗詳細資訊 - 錯誤碼: {result.get('code')}, 錯誤訊息: {result.get('msg')}")
-                    self.logger.error(f"失敗的資料筆數: {len(batch_data)}")
-                    if batch_data and len(batch_data) > 0:
-                        self.logger.error(f"第一筆資料的欄位: {list(batch_data[0].keys())}")
-                        for i, record_data in enumerate(batch_data[:3]):
-                            self.logger.error(f"第 {i+1} 筆資料內容: {record_data}")
-                    continue
+                        
+                    if result.get('code') != 0:
+                         # 嘗試 fallback
+                        ok, ids_fb = _retry_create_with_sprints_fallback(batch_data)
+                        if ok:
+                            return True, ids_fb, []
+                        
+                        error_msg = f"批次創建失敗: {result.get('msg')}"
+                        self.logger.error(f"批次創建失敗詳細資訊 - 錯誤碼: {result.get('code')}, 錯誤訊息: {result.get('msg')}")
+                        return False, [], [error_msg]
+                    
+                    # 成功
+                    data_section = result.get('data', {})
+                    records_result = data_section.get('records', [])
+                    batch_ids = [record.get('record_id') for record in records_result if record.get('record_id')]
+                    return True, batch_ids, []
                 
-                # 提取成功創建的記錄 ID
-                data_section = result.get('data', {})
-                records = data_section.get('records', [])
-                batch_ids = [record.get('record_id') for record in records if record.get('record_id')]
-                success_ids.extend(batch_ids)
-                
+                return False, [], ["重試次數耗盡"]
+
             except Exception as e:
-                error_messages.append(f"批次創建異常: {e}")
+                return False, [], [f"批次創建異常: {e}"]
+
+        # 使用保守的並行數
+        max_workers = 3
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_batch = {executor.submit(_process_batch_create, batch): batch for batch in batches}
+            
+            for future in as_completed(future_to_batch):
+                success, ids, errs = future.result()
+                
+                with lock:
+                    if success:
+                        success_ids.extend(ids)
+                    else:
+                        error_messages.extend(errs)
         
         overall_success = len(error_messages) == 0
-        self.logger.info(f"批次創建完成，成功: {len(success_ids)}, 失敗: {len(error_messages)}")
+        self.logger.info(f"批次創建完成 (並行)，成功: {len(success_ids)}, 失敗: {len(error_messages)}")
         
         return overall_success, success_ids, error_messages
     

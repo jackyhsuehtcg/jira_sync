@@ -71,6 +71,24 @@ class SyncStateManager:
         
         return self.processing_log_managers[table_id]
     
+    def get_last_sync_time(self, table_id: str) -> Optional[int]:
+        """
+        獲取表格的最後同步時間（基於 JIRA 更新時間）
+        
+        Args:
+            table_id: 表格 ID
+            
+        Returns:
+            最後同步的 JIRA 更新時間戳（毫秒），未找到則返回 None
+        """
+        try:
+            log_manager = self.get_processing_log_manager(table_id)
+            return log_manager.get_max_jira_updated_time()
+            
+        except Exception as e:
+            self.logger.error(f"獲取最後同步時間失敗: {e}")
+            return None
+
     def is_cold_start(self, table_id: str) -> bool:
         """
         檢查是否需要冷啟動

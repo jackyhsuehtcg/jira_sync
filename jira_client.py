@@ -76,47 +76,75 @@ class JiraClient:
     
     def _make_request(self, method: str, endpoint: str, data: Dict[str, Any] = None, 
                      params: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        """發送 HTTP 請求到 JIRA"""
+        """
+        發送 HTTP 請求到 JIRA
+        支援自動處理 Rate Limit (HTTP 429)
+        """
         url = f"{self.server_url}{endpoint}"
+        max_retries = 3
+        base_wait_time = 2
         
-        try:
-            response = requests.request(
-                method=method,
-                url=url,
-                auth=self.auth,
-                headers=self.headers,
-                json=data,
-                params=params,
-                timeout=self.timeout
-            )
-            
-            if self.logger:
-                self.logger.debug(f"API 請求: {method} {endpoint} -> {response.status_code}")
-            
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 201:
-                return response.json() if response.text else {}
-            elif response.status_code == 204:
-                return {}
-            else:
-                error_msg = f"API 請求失敗: {response.status_code} - {response.text}"
-                if self.logger:
-                    self.logger.error(error_msg)
-                return None
+        for attempt in range(max_retries + 1):
+            try:
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    auth=self.auth,
+                    headers=self.headers,
+                    json=data,
+                    params=params,
+                    timeout=self.timeout
+                )
                 
-        except requests.exceptions.Timeout:
-            if self.logger:
-                self.logger.error(f"API 請求逾時: {method} {endpoint}")
-            return None
-        except requests.exceptions.RequestException as e:
-            if self.logger:
-                self.logger.error(f"API 請求錯誤: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            if self.logger:
-                self.logger.error(f"JSON 解析錯誤: {e}")
-            return None
+                if self.logger:
+                    self.logger.debug(f"API 請求: {method} {endpoint} -> {response.status_code}")
+                
+                # 處理 Rate Limit (429)
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', base_wait_time * (2 ** attempt)))
+                    if self.logger:
+                        self.logger.warning(f"觸發 JIRA API 限流 (429)，等待 {retry_after} 秒後重試 ({attempt + 1}/{max_retries})")
+                    time.sleep(retry_after)
+                    continue
+                
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 201:
+                    return response.json() if response.text else {}
+                elif response.status_code == 204:
+                    return {}
+                else:
+                    # 對於 5xx 錯誤進行重試
+                    if 500 <= response.status_code < 600 and attempt < max_retries:
+                        wait_time = base_wait_time * (2 ** attempt)
+                        if self.logger:
+                            self.logger.warning(f"JIRA 伺服器錯誤 {response.status_code}，等待 {wait_time} 秒後重試")
+                        time.sleep(wait_time)
+                        continue
+                        
+                    error_msg = f"API 請求失敗: {response.status_code} - {response.text}"
+                    if self.logger:
+                        self.logger.error(error_msg)
+                    return None
+                    
+            except requests.exceptions.Timeout:
+                if self.logger:
+                    self.logger.error(f"API 請求逾時: {method} {endpoint}")
+                return None
+            except requests.exceptions.RequestException as e:
+                if self.logger:
+                    self.logger.error(f"API 請求錯誤: {e}")
+                return None
+            except json.JSONDecodeError as e:
+                if self.logger:
+                    self.logger.error(f"JSON 解析錯誤: {e}")
+                return None
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"未預期的錯誤: {e}")
+                return None
+        
+        return None
     
     def _get_total_count_with_retry(self, jql: str, max_retries: int = 3) -> int:
         """
@@ -255,7 +283,7 @@ class JiraClient:
     def search_issues(self, jql: str, fields: List[str], 
                      max_results: int = None) -> Dict[str, Dict[str, Any]]:
         """
-        原子性獲取 JIRA Issues
+        原子性獲取 JIRA Issues（並行加速版）
         要麼全部成功，要麼拋出異常，絕不返回不完整資料
         
         Args:
@@ -275,7 +303,7 @@ class JiraClient:
             fields = fields + ['key']
         
         if self.logger:
-            self.logger.info(f"開始原子性獲取 JIRA Issues: {jql}")
+            self.logger.info(f"開始原子性獲取 JIRA Issues (並行模式): {jql}")
             self.logger.debug(f"請求欄位: {fields}")
         
         # 第一階段：獲取總數和驗證
@@ -284,36 +312,64 @@ class JiraClient:
             if self.logger:
                 self.logger.info("查詢結果為空，返回空字典")
             return {}
+            
+        # 如果有 max_results 限制，調整總數
+        if max_results and max_results < total_count:
+            if self.logger:
+                self.logger.info(f"限制獲取數量: {total_count} -> {max_results}")
+            total_count = max_results
         
-        # 第二階段：分批獲取到臨時存儲
+        # 第二階段：計算批次並行獲取
         temp_issues = {}
         failed_batches = []
-        # 優化批次大小以減少API呼叫次數
+        # 優化批次大小
         batch_size = self._calculate_optimal_batch_size(total_count, max_results)
         
-        if self.logger:
-            self.logger.info(f"開始分批獲取：總數 {total_count}，批次大小 {batch_size}")
-        
+        # 準備批次任務
+        tasks = []
         for batch_start in range(0, total_count, batch_size):
-            batch_end = min(batch_start + batch_size, total_count)
+            # 確保最後一批不超過限制
+            current_batch_size = min(batch_size, total_count - batch_start)
+            if current_batch_size <= 0:
+                break
+            tasks.append((batch_start, current_batch_size))
             
-            if self.logger:
-                self.logger.debug(f"處理批次: {batch_start} - {batch_end}")
+        if self.logger:
+            self.logger.info(f"開始並行獲取：總數 {total_count}，批次大小 {batch_size}，共 {len(tasks)} 個任務")
             
-            # 帶重試的批次獲取
-            batch_data = self._fetch_batch_with_retry(
-                jql, fields, batch_start, batch_size
-            )
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        # 使用保守的並行數，避免對 JIRA 造成過大壓力
+        max_workers = 5
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_batch = {
+                executor.submit(
+                    self._fetch_batch_with_retry, 
+                    jql, fields, start, size
+                ): start 
+                for start, size in tasks
+            }
             
-            if batch_data is None:
-                failed_batches.append(batch_start)
-                if self.logger:
-                    self.logger.error(f"批次 {batch_start} 獲取失敗")
-            else:
-                # 使用 dict.update() 確保唯一性
-                temp_issues.update(batch_data)
-                if self.logger:
-                    self.logger.debug(f"批次 {batch_start} 成功，累計: {len(temp_issues)} 筆")
+            for future in as_completed(future_to_batch):
+                batch_start = future_to_batch[future]
+                try:
+                    batch_data = future.result()
+                    if batch_data is None:
+                        failed_batches.append(batch_start)
+                        if self.logger:
+                            self.logger.error(f"批次 {batch_start} 獲取失敗")
+                    else:
+                        # 這裡需要注意執行緒安全，但在 Python 中 dict update 是原子的 (GIL)
+                        # 且 key 是唯一的，所以直接 update 是安全的
+                        temp_issues.update(batch_data)
+                        if self.logger:
+                            self.logger.debug(f"批次 {batch_start} 成功，獲取 {len(batch_data)} 筆")
+                            
+                except Exception as e:
+                    failed_batches.append(batch_start)
+                    if self.logger:
+                        self.logger.error(f"批次 {batch_start} 執行異常: {e}")
         
         # 第三階段：完整性驗證
         self._validate_data_completeness(
@@ -321,7 +377,7 @@ class JiraClient:
         )
         
         if self.logger:
-            self.logger.info(f"原子性獲取完成: {len(temp_issues)} 筆唯一 Issues")
+            self.logger.info(f"並行獲取完成: {len(temp_issues)} 筆唯一 Issues")
         
         return temp_issues
     

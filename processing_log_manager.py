@@ -239,6 +239,29 @@ class ProcessingLogManager:
             self.logger.error(f"移除處理日誌失敗 {issue_key}: {e}")
             return False
     
+    def get_max_jira_updated_time(self) -> Optional[int]:
+        """
+        獲取最大的 JIRA 更新時間戳
+        
+        Returns:
+            最大的 JIRA 更新時間戳（毫秒），如果沒有記錄則返回 None
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('SELECT MAX(jira_updated_time) as max_time FROM processing_log')
+                
+                row = cursor.fetchone()
+                # sqlite3.Row 支援 key access, 但 MAX 聚合可能返回 None (空表)
+                if row and row['max_time'] is not None:
+                    return row['max_time']
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"獲取最大 JIRA 更新時間失敗: {e}")
+            return None
+
     def get_last_processed_time(self, issue_key: str) -> Optional[int]:
         """
         獲取指定 Issue 的最後處理時間
