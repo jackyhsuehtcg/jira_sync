@@ -127,6 +127,7 @@ class SyncMonitor:
         self.global_pause = False
         self.cleanup_in_progress = False
         self.last_cleanup_date = None
+        self.cleanup_timeout_seconds = 120 * 60
 
         # 畫面配置
         self.status_height_ratio = 0.33
@@ -213,6 +214,12 @@ class SyncMonitor:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.global_logs.append(f"[{timestamp}] [{level}] {message}")
 
+    def _broadcast_log(self, message: str, level: str = "INFO"):
+        """添加全局與所有表格日誌"""
+        self._add_global_log(message, level)
+        for table in self.tables.values():
+            table.add_log(message, level)
+
     def _get_taiwan_now(self) -> datetime:
         """取得台灣時間"""
         return datetime.now(timezone(timedelta(hours=8)))
@@ -239,12 +246,14 @@ class SyncMonitor:
         """執行 table_scan_cleaner.py"""
         try:
             cmd = [sys.executable, "table_scan_cleaner.py", "--no-confirm"]
+            self._broadcast_log("data_cleaner 啟動", "INFO")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=os.path.dirname(os.path.abspath(__file__)),
             )
+            self._broadcast_log("data_cleaner 執行中...", "INFO")
 
             async def read_stream(stream, log_level):
                 while True:
@@ -255,16 +264,52 @@ class SyncMonitor:
                     if line_text:
                         self._add_global_log(line_text, log_level)
 
-            await asyncio.gather(
-                read_stream(process.stdout, "INFO"),
-                read_stream(process.stderr, "ERROR"),
-                process.wait(),
-            )
+            stdout_task = asyncio.create_task(read_stream(process.stdout, "INFO"))
+            stderr_task = asyncio.create_task(read_stream(process.stderr, "ERROR"))
 
-            return process.returncode == 0
+            try:
+                await asyncio.wait_for(
+                    process.wait(), timeout=self.cleanup_timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                timeout_minutes = self.cleanup_timeout_seconds // 60
+                self._broadcast_log(
+                    f"data_cleaner 執行逾時（{timeout_minutes} 分鐘），正在終止...",
+                    "ERROR",
+                )
+                try:
+                    process.terminate()
+                except ProcessLookupError:
+                    pass
+
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                    await process.wait()
+
+                await asyncio.gather(
+                    stdout_task, stderr_task, return_exceptions=True
+                )
+                self._broadcast_log("data_cleaner 已終止", "ERROR")
+                return False
+
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            success = process.returncode == 0
+            if success:
+                self._broadcast_log("data_cleaner 結束: 成功", "INFO")
+            else:
+                self._broadcast_log(
+                    f"data_cleaner 結束: 失敗（code {process.returncode}）",
+                    "ERROR",
+                )
+            return success
 
         except Exception as e:
-            self._add_global_log(f"執行清理命令失敗: {e}", "ERROR")
+            self._broadcast_log(f"執行清理命令失敗: {e}", "ERROR")
             return False
 
     async def _run_daily_cleanup(self, cleanup_date):
@@ -552,7 +597,7 @@ class SyncMonitor:
         # 第一行：團隊狀態概覽（橫向排列）
         y = start_y
         x = 0
-        col_width = 20  # 每個團隊佔用的寬度
+        col_width = 24  # 每個團隊佔用的寬度
 
         for idx, (key, table_info) in enumerate(self.tables.items()):
             if x + col_width > width:
@@ -572,9 +617,10 @@ class SyncMonitor:
 
             # 暫停標記
             pause_mark = "[P]" if table_info.paused else "   "
+            cleanup_mark = "[C]" if self.cleanup_in_progress else "   "
 
-            # 縮短顯示格式：符號 team.table [P] 狀態
-            display_text = f"{status_symbol} {key} {pause_mark}"
+            # 縮短顯示格式：符號 [C][P] team.table
+            display_text = f"{status_symbol} {cleanup_mark}{pause_mark} {key}"
             display_text = display_text[: col_width - 1].ljust(col_width - 1)
 
             # 繪製
