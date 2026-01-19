@@ -23,9 +23,18 @@ import json
 import sys
 from typing import Dict, List, Any, Optional
 from datetime import datetime
+import os
 import requests
 from requests.auth import HTTPBasicAuth
 import yaml
+
+try:
+    from tls_utils import build_ca_bundle
+except ModuleNotFoundError:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    from tls_utils import build_ca_bundle
 
 
 class JiraTicketFetcher:
@@ -39,18 +48,26 @@ class JiraTicketFetcher:
         """
         # 從 config.yaml 載入配置
         try:
-            with open('config.yaml', 'r', encoding='utf-8') as f:
+            config_path = os.path.abspath('config.yaml')
+            with open(config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
             
             jira_config = config.get('jira', {})
             self.server_url = jira_config.get('server_url', '').rstrip('/')
             self.username = jira_config.get('username', '')
             self.password = jira_config.get('password', '')
+            self.ca_cert_path = jira_config.get('ca_cert_path')
             
             if not all([self.server_url, self.username, self.password]):
                 raise ValueError("JIRA 配置不完整")
                 
             print(f"✓ 成功載入 JIRA 配置: {self.server_url}")
+            
+            if self.ca_cert_path:
+                self.ca_cert_path = os.path.expanduser(str(self.ca_cert_path))
+                if not os.path.isabs(self.ca_cert_path):
+                    config_dir = os.path.dirname(config_path)
+                    self.ca_cert_path = os.path.abspath(os.path.join(config_dir, self.ca_cert_path))
             
         except Exception as e:
             print(f"✗ 載入 config.yaml 失敗: {e}")
@@ -63,6 +80,13 @@ class JiraTicketFetcher:
             'Accept': 'application/json'
         }
         self.timeout = 30
+        self.verify = True
+        if self.ca_cert_path:
+            self.verify = build_ca_bundle(self.ca_cert_path) or self.ca_cert_path
+            if self.verify == self.ca_cert_path:
+                print("✓ 使用自訂 CA 憑證進行 TLS 驗證")
+            else:
+                print("✓ 使用系統 CA + 自訂 CA 憑證進行 TLS 驗證")
         
         # 測試連接
         self._test_connection()
@@ -91,7 +115,8 @@ class JiraTicketFetcher:
                 auth=self.auth,
                 headers=self.headers,
                 params=params,
-                timeout=self.timeout
+                timeout=self.timeout,
+                verify=self.verify
             )
             
             print(f"API 請求: {method} {endpoint} -> {response.status_code}")

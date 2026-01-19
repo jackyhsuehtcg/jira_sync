@@ -128,6 +128,17 @@ class ConfigManager:
         
         if self.logger:
             self.logger.info("配置驗證通過")
+
+    def _resolve_ca_cert_path(self, jira_config: Dict[str, Any]) -> Optional[str]:
+        """解析 JIRA CA 憑證路徑（相對於配置檔案目錄）"""
+        ca_cert_path = jira_config.get('ca_cert_path')
+        if not ca_cert_path:
+            return None
+        resolved_path = os.path.expanduser(str(ca_cert_path))
+        if not os.path.isabs(resolved_path):
+            config_dir = os.path.dirname(self.config_file)
+            resolved_path = os.path.abspath(os.path.join(config_dir, resolved_path))
+        return resolved_path
     
     def get_global_config(self) -> Dict[str, Any]:
         """取得全域配置"""
@@ -137,7 +148,11 @@ class ConfigManager:
     def get_jira_config(self) -> Dict[str, Any]:
         """取得 JIRA 配置"""
         with self.config_lock:
-            return self.config.get('jira', {}).copy()
+            jira_config = self.config.get('jira', {}).copy()
+        ca_cert_path = self._resolve_ca_cert_path(jira_config)
+        if ca_cert_path:
+            jira_config['ca_cert_path'] = ca_cert_path
+        return jira_config
     
     def get_lark_base_config(self) -> Dict[str, Any]:
         """取得 Lark Base 配置"""

@@ -1,7 +1,9 @@
 
+import os
 import requests
 import yaml
 import json
+from tls_utils import build_ca_bundle
 
 def get_jira_issue_parent(issue_key):
     """
@@ -15,17 +17,25 @@ def get_jira_issue_parent(issue_key):
     """
     try:
         # Load JIRA config from config.yaml
-        with open('config.yaml', 'r') as f:
+        config_path = os.path.abspath('config.yaml')
+        with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
         
         jira_config = config.get('jira', {})
         server_url = jira_config.get('server_url')
         username = jira_config.get('username')
         password = jira_config.get('password')
+        ca_cert_path = jira_config.get('ca_cert_path')
 
         if not all([server_url, username, password]):
             print("Error: JIRA configuration (server_url, username, password) is missing in config.yaml")
             return None
+        
+        if ca_cert_path:
+            ca_cert_path = os.path.expanduser(str(ca_cert_path))
+            if not os.path.isabs(ca_cert_path):
+                config_dir = os.path.dirname(config_path)
+                ca_cert_path = os.path.abspath(os.path.join(config_dir, ca_cert_path))
 
         # Construct the API URL
         api_url = f"{server_url.rstrip('/')}/rest/api/2/issue/{issue_key}?fields=parent"
@@ -34,7 +44,14 @@ def get_jira_issue_parent(issue_key):
         auth = (username, password)
 
         # Make the request
-        response = requests.get(api_url, auth=auth, timeout=10)
+        verify = True
+        if ca_cert_path:
+            verify = build_ca_bundle(ca_cert_path) or ca_cert_path
+            if verify == ca_cert_path:
+                print("Info: 使用自訂 CA 憑證進行 TLS 驗證")
+            else:
+                print("Info: 使用系統 CA + 自訂 CA 憑證進行 TLS 驗證")
+        response = requests.get(api_url, auth=auth, timeout=10, verify=verify)
         response.raise_for_status()  # Raise an exception for bad status codes
 
         # Parse the JSON response
@@ -61,4 +78,3 @@ if __name__ == "__main__":
         print(json.dumps(parent, indent=2))
     else:
         print(f"Could not retrieve parent information for {issue_key}.")
-

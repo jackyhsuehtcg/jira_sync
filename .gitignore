@@ -84,3 +84,6 @@ htmlcov/
 .dmypy.json
 dmypy.json
 config_prod.yaml
+
+# crtification
+*.crt

@@ -145,6 +145,7 @@ jira:
   server_url: "https://your-jira.com"
   username: "your-username"
   password: "your-password"
+  ca_cert_path: "sectigo-dv-r36.crt" # JIRA CA 憑證路徑（可選，會與系統 CA 合併）
 
 # Lark Base 設定
 lark_base:

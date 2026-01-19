@@ -11,6 +11,7 @@ import time
 import random
 from typing import Dict, List, Any, Optional
 from requests.auth import HTTPBasicAuth
+from tls_utils import build_ca_bundle
 
 
 class DataIncompleteError(Exception):
@@ -44,6 +45,10 @@ class JiraClient:
         self.password = config['password']
         self.timeout = config.get('timeout', 30)
         self.max_results = config.get('max_results', 1000)
+        self.ca_cert_path = config.get('ca_cert_path')
+        self.verify = True
+        if self.ca_cert_path:
+            self.verify = build_ca_bundle(self.ca_cert_path) or self.ca_cert_path
         
         # 設定認證和標頭
         self.auth = HTTPBasicAuth(self.username, self.password)
@@ -57,6 +62,11 @@ class JiraClient:
             self._test_connection()
         
         if self.logger:
+            if self.ca_cert_path:
+                if self.verify == self.ca_cert_path:
+                    self.logger.info("JIRA TLS 驗證使用自訂 CA 憑證")
+                else:
+                    self.logger.info("JIRA TLS 驗證使用系統 CA + 自訂 CA 憑證")
             self.logger.info(f"JIRA 客戶端初始化完成: {self.server_url}")
     
     def _test_connection(self):
@@ -93,7 +103,8 @@ class JiraClient:
                     headers=self.headers,
                     json=data,
                     params=params,
-                    timeout=self.timeout
+                    timeout=self.timeout,
+                    verify=self.verify
                 )
                 
                 if self.logger:
